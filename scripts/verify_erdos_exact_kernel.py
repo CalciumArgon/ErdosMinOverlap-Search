@@ -251,8 +251,8 @@ def test_legacy_compression():
     best = E.exact_sweep(breaks2, v_all)["best"]
     score = 1.0 / (1e-8 + float(best))
     print(f"  compressed: m={len(v_all)} segments, exact c5={float(best):.8f}, score={score:.6f}")
-    check("legacy compression: certified score >= 2.5 (close to paper 2.6256)",
-          score >= 2.5, f"got {score:.6f}")
+    check("legacy compression: certified score >= 2.6 (paper 2.6256)",
+          score >= 2.6, f"got {score:.6f}")
 
 
 def main():

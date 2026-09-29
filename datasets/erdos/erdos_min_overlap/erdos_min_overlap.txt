@@ -15,7 +15,7 @@ construct_h() must return (breaks, values):
   candidate is invalid (error code mass_balance_out_of_range).
 - Use only int or `fractions.Fraction` — floats are rejected
   (error code break_or_value_is_float_use_Fraction(num,den)).
-- Limits: m ≤ 64 segments, every denominator ≤ 2^20, no zero-width segments.
+- Limits: m ≤ 512 segments, every denominator ≤ 2^20, no zero-width segments.
 - run_code() must return whatever construct_h() returns.
 
 ## Scoring (exact, no self-report)

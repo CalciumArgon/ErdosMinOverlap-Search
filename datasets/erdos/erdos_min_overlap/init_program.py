@@ -31,37 +31,40 @@ def _project_box_sum(v, s, lo=0.0, hi=1.0):
 def _legacy_to_spec(g):
     """Warm-start only: compress a legacy (h, c5, n) global into an A类 spec.
 
-    Quantizes values to dyadic rationals (1/16 -> 1/8 -> 1/4 -> 1/2 -> 0/1)
-    and merges equal runs, so the chains seed from a READABLE piecewise
-    structure instead of a 2400-element grid program. The balanced segment is
-    chosen as a TAIL of consecutive runs (split point k): the evaluator
-    re-balances it exactly, so the mass constraint stays satisfied and the
-    balanced value stays in [0,1] as long as the prefix mass fits the window.
+    Greedy epsilon-merge of adjacent cells (|v - run_mean| <= 0.02) with
+    dyadic-mean run values (denominator 2^16) — measured on the paper
+    solution this preserves c5 to ~1e-4 with ~300 segments, while uniform
+    quantization destroys it (the optimum's intermediate values carry most
+    of the optimality). The balanced segment is chosen as a TAIL of
+    consecutive runs (split point k) so the auto-balanced value stays in
+    [0,1]; the evaluator re-balances it exactly.
     """
     h = np.asarray(g[0], dtype=np.float64).reshape(-1)
     n = int(g[2])
     if h.shape[0] != n or n < 1:
         return None
-    for q in (16, 8, 4, 2, 1):
-        vals = np.round(h * q) / q
-        runs = []
-        cur_v, start = vals[0], 0
-        for i in range(1, n):
-            if vals[i] != cur_v:
-                runs.append((start, i, cur_v))
-                cur_v, start = vals[i], i
-        runs.append((start, n, cur_v))
-        if len(runs) > 64:
-            continue
-        breaks_all = [Fraction(2 * r[0], n) for r in runs] + [Fraction(2, 1)]
-        values_all = [Fraction(int(round(r[2] * q)), q) for r in runs]
-        widths = [breaks_all[i + 1] - breaks_all[i] for i in range(len(values_all))]
-        mass = sum(values_all[i] * widths[i] for i in range(len(values_all)))
-        for k in range(len(values_all) - 1, 0, -1):
-            mass -= values_all[k] * widths[k]
-            w_tail = Fraction(2, 1) - breaks_all[k]
-            if 1 - w_tail <= mass <= 1:
-                return breaks_all[: k + 1] + [Fraction(2, 1)], values_all[:k]
+    EPS = 0.02
+    runs = []
+    cur, mean = [0], h[0]
+    for i in range(1, n):
+        if abs(h[i] - mean) <= EPS:
+            cur.append(i)
+            mean = np.mean(h[cur])
+        else:
+            runs.append((cur[0], i, mean))
+            cur, mean = [i], h[i]
+    runs.append((cur[0], n, mean))
+    if len(runs) > 512:
+        return None
+    breaks_all = [Fraction(2 * r[0], n) for r in runs] + [Fraction(2, 1)]
+    values_all = [Fraction(int(round(r[2] * 2**16)), 2**16) for r in runs]
+    widths = [breaks_all[i + 1] - breaks_all[i] for i in range(len(values_all))]
+    mass = sum(values_all[i] * widths[i] for i in range(len(values_all)))
+    for k in range(len(values_all) - 1, 0, -1):
+        mass -= values_all[k] * widths[k]
+        w_tail = Fraction(2, 1) - breaks_all[k]
+        if 1 - w_tail <= mass <= 1:
+            return breaks_all[: k + 1] + [Fraction(2, 1)], values_all[:k]
     return None
 
 

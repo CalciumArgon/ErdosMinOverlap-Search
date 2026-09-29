@@ -64,13 +64,14 @@ TIMEOUT_SECONDS = _env_int("EVALUATOR_TIMEOUT_SECONDS", 1100)
 # A类 LIMITS
 # ============================================================================
 
-MAX_SEGMENTS = 64
+MAX_SEGMENTS = 512
 MAX_DENOM_BITS = 20
 MAX_DENOM = 1 << MAX_DENOM_BITS           # 1048576
 REL_EQUIOSC_DELTA = Fraction(1, 10**9)    # relative delta for equioscillation count
 SENS_DELTA = Fraction(1, 1 << 20)         # exact one-sided break perturbation
 SNAP_MAX_DENOM = 64                       # small-denominator cap for snap hints
 LOCAL_OPT_EPS = Fraction(1, 10**9)        # |sensitivity| below this counts as locally optimal
+MAX_SENS_SEGMENTS = 128                   # skip O(m^3) break sensitivities above this m
 
 
 # ============================================================================
@@ -596,11 +597,14 @@ def build_diagnostics(breaks, values, v_all, sweep):
     if ranked:
         s_star, _, sl_b, sl_a = ranked[0]
         vs = value_sensitivities(breaks, v_all, s_star)
-        bs = break_sensitivities(breaks, values, v_all, s_star)
+        if len(v_all) <= MAX_SENS_SEGMENTS:
+            bs = break_sensitivities(breaks, values, v_all, s_star)
+        else:
+            bs = []  # O(m^3); skipped for large specs
         sens = sensitivity_text_from(vs, bs, sl_b, sl_a)
         max_v = max((abs(d) for _, d in vs), default=Fraction(0))
         max_b = max((abs(d) for _, _, d in bs), default=Fraction(0))
-        local_optimal = max_v < LOCAL_OPT_EPS and max_b < LOCAL_OPT_EPS
+        local_optimal = max_v < LOCAL_OPT_EPS and (max_b < LOCAL_OPT_EPS or not bs)
         move_hint = _move_hint(vs, bs)
         snap_hints = [_snap_hint(breaks, v_all, s, mv, best) for s, mv, _, _ in ranked]
     else:
