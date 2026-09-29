@@ -8,7 +8,7 @@ set -a
 . /inspire/hdd/global_user/260107010002/.secrets/simpletes.env
 set +a
 export EVALUATOR_CONCURRENT_PROCESSES=8
-export SIMPLETES_FORCE_REASONING_EFFORT=high   # switch to xhigh for max thinking budget
+export SIMPLETES_FORCE_REASONING_EFFORT=high   # xhigh: ~2x thinking tokens and wall time
 export SIMPLETES_INITIAL_SHARED_CONSTRUCTION_PATH=/inspire/hdd/global_user/260107010002/home/SimpleTES/best_results/mathematics_discovery/erdos_minimum_overlap/erdos_minimum_overlap_best_construction.json
 export UV_DEFAULT_INDEX=http://nexus.sii.shaipower.online/repository/pypi_proxy/simple/
 
@@ -21,10 +21,10 @@ export UV_DEFAULT_INDEX=http://nexus.sii.shaipower.online/repository/pypi_proxy/
   --num-chains 4 \
   --k-candidates 4 \
   --max-generations 40 \
-  --gen-concurrency 2 \
+  --gen-concurrency 4 \
   --eval-concurrency 8 \
   --init-eval-repeats 2 \
-  --max-tokens 24576 \
+  --max-tokens 131072 \
   --include-construction \
   --log-interval 16 \
   --output-path checkpoints/erdos-A-v4pro-high
