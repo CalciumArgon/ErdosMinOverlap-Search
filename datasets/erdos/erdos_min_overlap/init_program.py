@@ -28,16 +28,33 @@ def _project_box_sum(v, s, lo=0.0, hi=1.0):
     return np.clip(v - tau_hi, lo, hi)
 
 
-def _legacy_postprocess(g):
-    """Warm-start only: convert a legacy (h, c5, n) global into the old 3-tuple
-    (bit-identical to the original dense-grid run_code post-processing)."""
+def _legacy_to_spec(g):
+    """Warm-start only: compress a legacy (h, c5, n) global into an A类 spec.
+
+    Quantizes values to dyadic rationals (1/16 -> 1/8 -> 1/4 -> 1/2 -> 0/1)
+    and merges equal runs until the segment count fits the 64-segment limit,
+    so the chains seed from a READABLE piecewise structure instead of a
+    2400-element grid program. The evaluator re-balances the last segment
+    exactly, so the mass constraint stays satisfied.
+    """
     h = np.asarray(g[0], dtype=np.float64).reshape(-1)
     n = int(g[2])
-    if h.shape[0] != n:
+    if h.shape[0] != n or n < 1:
         return None
-    h = _project_box_sum(h, n / 2.0)
-    c5 = float(np.max(np.correlate(h, 1.0 - h, mode="full") * 2.0 / n))
-    return h, c5, n
+    for q in (16, 8, 4, 2, 1):
+        vals = np.round(h * q) / q
+        runs = []
+        cur_v, start = vals[0], 0
+        for i in range(1, n):
+            if vals[i] != cur_v:
+                runs.append((start, i, cur_v))
+                cur_v, start = vals[i], i
+        runs.append((start, n, cur_v))
+        if len(runs) <= 64:
+            breaks = [Fraction(2 * r[0], n) for r in runs] + [Fraction(2, 1)]
+            values = [Fraction(int(round(r[2] * q)), q) for r in runs[:-1]]
+            return breaks, values
+    return None
 
 
 def _decode_global(g):
@@ -52,7 +69,7 @@ def _decode_global(g):
             pass
     if isinstance(g, (tuple, list)) and len(g) == 3:
         try:
-            return _legacy_postprocess(g)
+            return _legacy_to_spec(g)
         except Exception:
             pass
     return None

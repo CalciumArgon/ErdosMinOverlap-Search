@@ -24,11 +24,16 @@ Exits 0 on full pass, 1 on any failure.
 """
 
 import importlib.util
+import json
+import os
 import random
 import sys
 from fractions import Fraction
 
 import numpy as np
+
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, REPO_ROOT)
 
 EVALUATOR_PATH = "datasets/erdos/erdos_min_overlap/evaluator.py"
 
@@ -209,12 +214,45 @@ def test_diagnostics(rng, n_specs=10):
         sweep = E.exact_sweep(breaks, v_all)
         diag = E.build_diagnostics(breaks, values, v_all, sweep)
         for key in ("n_segments", "n_kinks", "equioscillation_count",
-                    "active_shifts", "active_sensitivity"):
+                    "active_shifts", "active_sensitivity",
+                    "local_optimal", "move_hint", "snap_hints"):
             if key not in diag:
                 check(f"diagnostics keys spec#{i}", False, f"missing {key}")
                 return
         assert len(diag["active_sensitivity"]) <= 200
+        assert len(diag["move_hint"]) <= 80
+        for h in diag["snap_hints"]:
+            assert len(h) <= 120
     check(f"diagnostics sanity ({n_specs} specs)", True)
+
+
+def test_legacy_compression():
+    """The round-2 warm start: paper legacy vector -> compressed A类 spec."""
+    from simpletes.construction import decode_construction
+
+    jpath = os.path.join(
+        REPO_ROOT, "best_results", "mathematics_discovery",
+        "erdos_minimum_overlap", "erdos_minimum_overlap_best_construction.json",
+    )
+    legacy = decode_construction(json.load(open(jpath)))
+
+    init_path = os.path.join(REPO_ROOT, "datasets", "erdos", "erdos_min_overlap", "init_program.py")
+    spec = importlib.util.spec_from_file_location("init_program_r2", init_path)
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+
+    out = m._legacy_to_spec(legacy)
+    check("legacy compression: produces a spec", out is not None)
+    if out is None:
+        return
+    breaks, values = out
+    breaks2, values2 = E.validate_spec((breaks, values))
+    v_all = values2 + [E.compute_last_value(breaks2, values2)]
+    best = E.exact_sweep(breaks2, v_all)["best"]
+    score = 1.0 / (1e-8 + float(best))
+    print(f"  compressed: m={len(v_all)} segments, exact c5={float(best):.8f}, score={score:.6f}")
+    check("legacy compression: certified score >= 2.5 (close to paper 2.6256)",
+          score >= 2.5, f"got {score:.6f}")
 
 
 def main():
@@ -232,6 +270,7 @@ def main():
     test_legacy_regression()
     test_spec_errors()
     test_diagnostics(rng)
+    test_legacy_compression()
     print()
     if FAILURES:
         print(f"{len(FAILURES)} FAILURE(S): {FAILURES}")

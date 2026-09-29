@@ -42,6 +42,13 @@ equioscillation_count (shifts within 1e-9 of the max — near-optimal solutions
 balance many competing shifts), active_shifts (top-3 binding shifts),
 active_sensitivity (exact slopes at the best shift and exact derivatives w.r.t.
 free values / break moves, auto-balance included).
+- local_optimal: True means all first-order moves are exhausted — you must
+  change the STRUCTURE (split/merge a segment), not just tune parameters.
+- move_hint: the single strongest exact move ("v3down gain 0.2500/unit" means
+  lowering value v3 by delta lowers the peak by 0.25*delta).
+- snap_hints: for each active shift, the nearest fraction with denominator ≤ 64
+  and the exact M there — if the gap is tiny, huge denominators buy nothing:
+  snap breaks to simple fractions.
 
 The time limit for each program evaluation is 1100 seconds.
 

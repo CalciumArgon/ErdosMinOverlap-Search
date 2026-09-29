@@ -69,6 +69,8 @@ MAX_DENOM_BITS = 20
 MAX_DENOM = 1 << MAX_DENOM_BITS           # 1048576
 REL_EQUIOSC_DELTA = Fraction(1, 10**9)    # relative delta for equioscillation count
 SENS_DELTA = Fraction(1, 1 << 20)         # exact one-sided break perturbation
+SNAP_MAX_DENOM = 64                       # small-denominator cap for snap hints
+LOCAL_OPT_EPS = Fraction(1, 10**9)        # |sensitivity| below this counts as locally optimal
 
 
 # ============================================================================
@@ -542,19 +544,45 @@ def break_sensitivities(breaks, values, v_all, s):
     return out
 
 
-def sensitivity_text(breaks, values, v_all, s, slope_before, slope_after):
+def sensitivity_text_from(vs, bs, slope_before, slope_after):
     """Compact one-line sensitivity summary for the best shift."""
     parts = [f"sl+{float(slope_after):+.4f}/sl-{float(slope_before):+.4f}"]
-    vs = value_sensitivities(breaks, v_all, s)
-    vs.sort(key=lambda t: abs(t[1]), reverse=True)
-    for p, d in vs[:2]:
+    vs_sorted = sorted(vs, key=lambda t: abs(t[1]), reverse=True)
+    for p, d in vs_sorted[:2]:
         parts.append(f"v{p}:{float(d):+.4f}")
-    bs = break_sensitivities(breaks, values, v_all, s)
-    if bs:
-        bs.sort(key=lambda t: abs(t[2]), reverse=True)
-        p, sign, d = bs[0]
+    bs_sorted = sorted(bs, key=lambda t: abs(t[2]), reverse=True)
+    if bs_sorted:
+        p, sign, d = bs_sorted[0]
         parts.append(f"b{p}{'+' if sign > 0 else '-'}:{float(d):+.4f}")
     return " ".join(parts)
+
+
+def _move_hint(vs, bs):
+    """Single strongest actionable move: parameter, direction, exact gain per unit."""
+    best_abs, best_txt = None, "none"
+    for p, d in vs:
+        if best_abs is None or abs(d) > best_abs:
+            best_abs = abs(d)
+            best_txt = f"v{p}{'down' if d > 0 else 'up'} gain {float(abs(d)):.4f}/unit"
+    for p, sign, d in bs:
+        if best_abs is None or abs(d) > best_abs:
+            best_abs = abs(d)
+            best_txt = f"b{p}{'left' if d > 0 else 'right'} gain {float(abs(d)):.4f}/unit"
+    return best_txt
+
+
+def _snap_hint(breaks, v_all, s, mv, best):
+    """Nearest small-denominator rational for an active shift, with the exact
+    M value there (drift to huge denominators buys nothing -> snap back)."""
+    r = s.limit_denominator(SNAP_MAX_DENOM)
+    if r < Fraction(-2, 1):
+        r = Fraction(-2, 1)
+    if r > Fraction(2, 1):
+        r = Fraction(2, 1)
+    if r == s:
+        return f"s={fmt_frac(s)}:small"
+    mr = M_at(breaks, v_all, r)
+    return f"s={fmt_frac(s)}~{fmt_frac(r)} M={float(mr):.6f} d{float(mr - best):+.2e}"
 
 
 def build_diagnostics(breaks, values, v_all, sweep):
@@ -567,15 +595,28 @@ def build_diagnostics(breaks, values, v_all, sweep):
     equiosc_count = sum(1 for r in records if best - r[1] <= delta)
     if ranked:
         s_star, _, sl_b, sl_a = ranked[0]
-        sens = sensitivity_text(breaks, values, v_all, s_star, sl_b, sl_a)
+        vs = value_sensitivities(breaks, v_all, s_star)
+        bs = break_sensitivities(breaks, values, v_all, s_star)
+        sens = sensitivity_text_from(vs, bs, sl_b, sl_a)
+        max_v = max((abs(d) for _, d in vs), default=Fraction(0))
+        max_b = max((abs(d) for _, _, d in bs), default=Fraction(0))
+        local_optimal = max_v < LOCAL_OPT_EPS and max_b < LOCAL_OPT_EPS
+        move_hint = _move_hint(vs, bs)
+        snap_hints = [_snap_hint(breaks, v_all, s, mv, best) for s, mv, _, _ in ranked]
     else:
         sens = ""
+        local_optimal = True
+        move_hint = "none"
+        snap_hints = []
     return {
         "n_segments": len(v_all),
         "n_kinks": len(records),
         "equioscillation_count": equiosc_count,
         "active_shifts": active_shifts,
         "active_sensitivity": sens,
+        "local_optimal": local_optimal,
+        "move_hint": move_hint,
+        "snap_hints": snap_hints,
     }
 
 
@@ -617,6 +658,9 @@ def evaluate_spec_solution(payload, eval_time):
         "equioscillation_count": diag["equioscillation_count"],
         "active_shifts": diag["active_shifts"],
         "active_sensitivity": diag["active_sensitivity"],
+        "local_optimal": diag["local_optimal"],
+        "move_hint": diag["move_hint"],
+        "snap_hints": diag["snap_hints"],
     }
 
 
