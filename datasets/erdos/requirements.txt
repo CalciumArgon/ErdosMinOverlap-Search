@@ -1,6 +1,3 @@
-# Task-local requirements for circle_packing evaluator env (see pyproject.toml).
+# Task-local requirements for erdos evaluator env (see pyproject.toml).
 numpy
-scipy
-scikit-learn
-cvxpy[CBC,CVXOPT,GLOP,GLPK,GUROBI,MOSEK,PDLP,SCIP,XPRESS,ECOS]
 psutil

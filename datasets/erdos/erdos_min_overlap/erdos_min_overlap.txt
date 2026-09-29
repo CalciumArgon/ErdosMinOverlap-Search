@@ -1,16 +1,50 @@
-Find a step function h: [0, 2] → [0, 1] that **minimizes** the overlap integral:
-
-$$C_5 = \\max_k \\int h(x)(1 - h(x+k)) dx$$
-
-**Constraints**:
-1. h(x) ∈ [0, 1] for all x
-2. ∫₀² h(x) dx = 1
-
-**Discretization**: Represent h as n_points samples over [0, 2].
-With dx = 2.0 / n_points:
-- 0 ≤ h[i] ≤ 1 for all i
-- sum(h) * dx = 1 (equivalently: sum(h) == n_points / 2 exactly)
-
+Minimize  C_5 = max_k ∫_0^2 h(x)(1 − h(x+k)) dx
+over step functions h: [0, 2] → [0, 1] with ∫_0^2 h(x) dx = 1.
 Do this by evolving the code between # EVOLVE-BLOCK-START and # EVOLVE-BLOCK-END.
 
+## Output protocol (exact piecewise, A类)
+
+construct_h() must return (breaks, values):
+
+- breaks: m+1 `fractions.Fraction` values, strictly increasing, breaks[0] == 0,
+  breaks[-1] == 2. They are the segment boundaries.
+- values: m−1 Fractions, each in [0,1] — one per segment EXCEPT the last.
+- The last segment value is not yours to choose: the evaluator sets
+      v_last = (1 − Σ v_i·w_i) / w_last,   w_i = breaks[i+1] − breaks[i],
+  so the mass constraint holds EXACTLY. If v_last falls outside [0,1] the
+  candidate is invalid (error code mass_balance_out_of_range).
+- Use only int or `fractions.Fraction` — floats are rejected
+  (error code break_or_value_is_float_use_Fraction(num,den)).
+- Limits: m ≤ 64 segments, every denominator ≤ 2^20, no zero-width segments.
+- run_code() must return whatever construct_h() returns.
+
+## Scoring (exact, no self-report)
+
+M(s) = Σ_{p,q} v_p(1−v_q)·λ(I_p ∩ (I_q−s)) (sliding window) is piecewise linear
+in s with kinks at the pairwise break differences {b_j − b_i}; its max over
+s ∈ [−2,2] is attained at a kink. The evaluator recomputes it exactly in
+rational arithmetic and scores combined_score = 1/(1e-8 + U) where U is the
+exact max rounded UP (a certified upper bound). Self-reported scores are ignored.
+
+## Mutations with semantics
+
+- Moving break b_p shifts exactly the family of kinks {b_j − b_p} ∪ {b_p − b_j}.
+- Flipping a segment value 0↔1 changes that segment's overlap contribution on
+  all shifts (a global restructuring move).
+- Splitting a segment near active shifts is local refinement; merging is coarsening.
+- Known-optimal solutions are near-binary and blocky: prefer few segments,
+  values near 0/1, breaks at simple fractions (1/3, 1/4, ...).
+
+## Diagnostics returned per evaluation
+
+c5, c5_cert_lo, c5_cert_hi (zero-gap certificate bracket), n_segments, n_kinks,
+equioscillation_count (shifts within 1e-9 of the max — near-optimal solutions
+balance many competing shifts), active_shifts (top-3 binding shifts),
+active_sensitivity (exact slopes at the best shift and exact derivatives w.r.t.
+free values / break moves, auto-balance included).
+
 The time limit for each program evaluation is 1100 seconds.
+
+GLOBAL_BEST_CONSTRUCTION may be provided: a {"kind":"spec","breaks":[[n,d],...],
+"values":[[n,d],...]} dict (exact spec) or a legacy (h, c5, n) tuple — the init
+program decodes both; you may use or improve that logic.

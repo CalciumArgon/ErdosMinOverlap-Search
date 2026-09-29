@@ -1,66 +1,81 @@
+"""Erdős minimum overlap — exact piecewise protocol (A类).
+
+construct_h() must return (breaks, values):
+  breaks: m+1 fractions.Fraction, strictly increasing, breaks[0] == 0, breaks[-1] == 2.
+  values: m-1 Fractions in [0,1] — one per segment EXCEPT the last; the evaluator
+          balances the last segment exactly: v_last = (1 - sum(v_i*w_i)) / w_last.
+Legacy 3-tuples (h_values, c5_bound, n_points) are accepted for warm-start only.
+"""
 # EVOLVE-BLOCK-START
+from fractions import Fraction
+
 import numpy as np
 
+
+def _project_box_sum(v, s, lo=0.0, hi=1.0):
+    # Bisection on tau for x = clip(v - tau, lo, hi) such that sum(x) = s.
+    if not np.all(np.isfinite(v)):
+        raise ValueError("h_values contain NaN or inf values")
+    tau_lo = float(np.min(v) - hi)
+    tau_hi = float(np.max(v) - lo)
+    for _ in range(80):
+        tau = (tau_lo + tau_hi) / 2.0
+        x = np.clip(v - tau, lo, hi)
+        if float(np.sum(x, dtype=np.float64)) > s:
+            tau_lo = tau
+        else:
+            tau_hi = tau
+    return np.clip(v - tau_hi, lo, hi)
+
+
+def _legacy_postprocess(g):
+    """Warm-start only: convert a legacy (h, c5, n) global into the old 3-tuple
+    (bit-identical to the original dense-grid run_code post-processing)."""
+    h = np.asarray(g[0], dtype=np.float64).reshape(-1)
+    n = int(g[2])
+    if h.shape[0] != n:
+        return None
+    h = _project_box_sum(h, n / 2.0)
+    c5 = float(np.max(np.correlate(h, 1.0 - h, mode="full") * 2.0 / n))
+    return h, c5, n
+
+
+def _decode_global(g):
+    """Decode GLOBAL_BEST_CONSTRUCTION into a returnable construction, or None."""
+    if isinstance(g, dict) and g.get("kind") == "spec":
+        try:
+            breaks = [Fraction(n, d) for n, d in g["breaks"]]
+            vals = [Fraction(n, d) for n, d in g["values"]][:-1]
+            if len(vals) == len(breaks) - 1:
+                return breaks, vals
+        except Exception:
+            pass
+    if isinstance(g, (tuple, list)) and len(g) == 3:
+        try:
+            return _legacy_postprocess(g)
+        except Exception:
+            pass
+    return None
+
+
+def _default_spec():
+    """Simple valid spec: h ≡ 1/2 (m=8 uniform blocks); exact mass, C5 = 1/2."""
+    breaks = [Fraction(k, 4) for k in range(9)]
+    return breaks, [Fraction(1, 2)] * 7
+
+
 def construct_h():
-    # Random construction matching ttt_discover's create_initial_state logic
-    rng = np.random.default_rng()
-    n_points = int(rng.integers(40, 100))
-
-    # Start with uniform 0.5
-    h_values = np.ones(n_points) * 0.5
-
-    # Add random perturbation with zero mean
-    perturbation = rng.uniform(-0.4, 0.4, n_points)
-    perturbation = perturbation - np.mean(perturbation)
-    h_values = h_values + perturbation
-
-    return h_values, n_points
+    try:
+        g = GLOBAL_BEST_CONSTRUCTION  # builtin installed by the framework (sitecustomize)
+    except Exception:
+        g = None
+    out = _decode_global(g)
+    return out if out is not None else _default_spec()
 
 # EVOLVE-BLOCK-END
 
 
 def run_code():
-    """Run the Erdős minimum overlap optimization.
-    
-    Returns:
-        tuple: (h_values, c5_bound, n_points)
-            h_values: np.ndarray, shape (n_points,), discretized step function h
-            c5_bound: float, max overlap computed from this h_values
-            n_points: int, number of bins used to discretize [0, 2]
-    """
-    h_values, n_points = construct_h()
-
-    n = int(n_points)
-    target_sum = n / 2.0
-
-    # Keep post-processing fixed and robust:
-    # - cast to float64 (avoid float32 bound spillover)
-    # - project to the feasible set {0<=h<=1, sum(h)=n/2}
-    h_values = np.asarray(h_values, dtype=np.float64).reshape(-1)
-    assert isinstance(n_points, int), TypeError(f"n_points must be an integer, got {type(n_points)}")
-    if h_values.shape[0] != n:
-        raise ValueError(f"Expected h_values shape ({n},), got {h_values.shape}")
-
-    def _project_box_sum(v: np.ndarray, s: float, lo: float = 0.0, hi: float = 1.0) -> np.ndarray:
-        if not np.all(np.isfinite(v)):
-            raise ValueError("h_values contain NaN or inf values")
-        # Bisection on tau for x = clip(v - tau, lo, hi) such that sum(x)=s.
-        tau_lo = float(np.min(v) - hi)
-        tau_hi = float(np.max(v) - lo)
-        for _ in range(80):
-            tau = (tau_lo + tau_hi) / 2.0
-            x = np.clip(v - tau, lo, hi)
-            if float(np.sum(x, dtype=np.float64)) > s:
-                tau_lo = tau
-            else:
-                tau_hi = tau
-        return np.clip(v - tau_hi, lo, hi)
-
-    h_values = _project_box_sum(h_values, target_sum)
-    
-    dx = 2.0 / n_points
-    j_values = 1.0 - h_values
-    correlation = np.correlate(h_values, j_values, mode="full") * dx
-    c5_bound = np.max(correlation)
-    
-    return h_values, c5_bound, n_points
+    """Returns whatever construct_h() returns: (breaks, values) Fractions (A类)
+    or a legacy (h_values, c5_bound, n_points) tuple for warm-start."""
+    return construct_h()
