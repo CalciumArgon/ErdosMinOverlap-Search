@@ -55,10 +55,10 @@ def random_spec(rng, max_m=12):
     """Random valid spec with varied denominators (powers of two up to 2^20 or small primes)."""
     m = rng.randint(1, max_m)
     denom = rng.choice([2, 3, 4, 5, 7, 8, 16, 64, 256, 4096, 1 << 20])
-    if 2 * denom - 1 < m:  # need m distinct interior break candidates
+    if 2 * denom < m:  # need m-1 distinct interior break candidates
         denom = rng.choice([16, 64, 256, 4096, 1 << 20])
     candidates = set()
-    while len(candidates) < m:
+    while len(candidates) < m - 1:
         candidates.add(Fraction(rng.randint(1, 2 * denom - 1), denom))
     breaks = [Fraction(0, 1)] + sorted(candidates) + [Fraction(2, 1)]
     values = [Fraction(rng.randint(0, 1)) if rng.random() < 0.6 else
