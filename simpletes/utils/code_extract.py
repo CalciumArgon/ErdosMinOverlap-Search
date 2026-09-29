@@ -178,6 +178,14 @@ def extract_code_detailed(
             end_marker=evolve_context.end_marker_line,
         )
         if evolved_block is None:
+            # Lenient fallback: weaker models sometimes return the code without
+            # the marker lines. Reuse the no-context block extraction (last
+            # fenced Python block, then raw output) as the evolved content.
+            fallback_code, fallback_reason = extract_code_detailed(text, evolve_context=None)
+            if fallback_code and fallback_reason in ("code_block", "code_block_unclosed", "raw_output"):
+                merged_code = evolve_context.merge_with_evolved_block(fallback_code)
+                if merged_code:
+                    return merged_code, "evolve_block_merged_lenient"
             return None, "missing_evolve_block_markers"
         if not evolved_block.strip():
             return None, "empty_evolve_block"
