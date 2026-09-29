@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import atexit
 import multiprocessing as mp
+import os
 import traceback
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
@@ -232,6 +233,13 @@ class LLMClient:
         # gpt-oss routes reasoning_effort through LiteLLM's allowed_openai_params
         if "gpt-oss" in self.model:
             kwargs["reasoning_effort"] = self.reasoning_effort
+            kwargs["allowed_openai_params"] = ["reasoning_effort"]
+
+        # Force reasoning_effort for reasoning-heavy custom endpoints that
+        # otherwise burn the whole token budget on thinking (empty content).
+        forced = os.environ.get("SIMPLETES_FORCE_REASONING_EFFORT")
+        if forced and "gpt-oss" not in self.model:
+            kwargs["reasoning_effort"] = forced
             kwargs["allowed_openai_params"] = ["reasoning_effort"]
 
         return {k: v for k, v in kwargs.items() if v is not None}

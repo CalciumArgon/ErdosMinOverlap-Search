@@ -194,7 +194,7 @@ class SchedulerMixin:
 
         # Increment counter BEFORE queueing to prevent race condition:
         # If we queue first and get cancelled before incrementing,
-        # the task is in queue but counter doesn't reflect it.
+        # the counter doesn't reflect it.
         async with self._counter_lock:
             self.generation_attempts += k
 
@@ -241,14 +241,22 @@ class SchedulerMixin:
         if gen_attempts < max_gens:
             return False
 
-        # Check queues and pending nodes atomically
+        # Check queues, pending nodes AND in-flight workers atomically
         async with self._db_lock:
             stats = self._queue_stats_locked()
         pending_count = stats["pending"]
         gen_q_size = stats["gen_queue"]
         eval_q_size = stats["eval_queue"]
+        gen_busy = stats.get("gen_inflight", 0)
+        eval_busy = stats.get("eval_inflight", 0)
 
-        if gen_q_size > 0 or eval_q_size > 0 or pending_count > 0:
+        if (
+            gen_q_size > 0
+            or eval_q_size > 0
+            or pending_count > 0
+            or gen_busy > 0
+            or eval_busy > 0
+        ):
             return False
 
         # Double-check after brief yield to catch any in-flight operations
@@ -260,8 +268,16 @@ class SchedulerMixin:
         pending_count = stats["pending"]
         gen_q_size = stats["gen_queue"]
         eval_q_size = stats["eval_queue"]
+        gen_busy = stats.get("gen_inflight", 0)
+        eval_busy = stats.get("eval_inflight", 0)
 
-        return gen_q_size == 0 and eval_q_size == 0 and pending_count == 0
+        return (
+            gen_q_size == 0
+            and eval_q_size == 0
+            and pending_count == 0
+            and gen_busy == 0
+            and eval_busy == 0
+        )
 
     async def _scheduler_loop(self) -> None:
         """Main scheduler loop."""
