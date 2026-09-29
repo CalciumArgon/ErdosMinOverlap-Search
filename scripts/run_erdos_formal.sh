@@ -21,7 +21,7 @@ uv sync
 set -a
 . /inspire/hdd/global_user/260107010002/.secrets/simpletes.env
 set +a
-export EVALUATOR_CONCURRENT_PROCESSES=8
+export EVALUATOR_CONCURRENT_PROCESSES=4
 export SIMPLETES_FORCE_REASONING_EFFORT=high   # xhigh: ~2x thinking tokens and wall time
 export SIMPLETES_INITIAL_SHARED_CONSTRUCTION_PATH=/inspire/hdd/global_user/260107010002/home/SimpleTES/best_results/mathematics_discovery/erdos_minimum_overlap/erdos_minimum_overlap_best_construction.json
 
@@ -35,7 +35,7 @@ export SIMPLETES_INITIAL_SHARED_CONSTRUCTION_PATH=/inspire/hdd/global_user/26010
   --k-candidates 4 \
   --max-generations 40 \
   --gen-concurrency 4 \
-  --eval-concurrency 8 \
+  --eval-concurrency 4 \
   --init-eval-repeats 2 \
   --max-tokens 131072 \
   --include-construction \
