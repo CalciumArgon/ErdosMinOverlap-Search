@@ -61,7 +61,7 @@ def _legacy_to_spec(g):
             mass -= values_all[k] * widths[k]
             w_tail = Fraction(2, 1) - breaks_all[k]
             if 1 - w_tail <= mass <= 1:
-                return breaks_all[: k + 1], values_all[:k]
+                return breaks_all[: k + 1] + [Fraction(2, 1)], values_all[:k]
     return None
 
 
