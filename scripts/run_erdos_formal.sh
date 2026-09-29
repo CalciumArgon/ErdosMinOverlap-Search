@@ -40,5 +40,5 @@ export SIMPLETES_INITIAL_SHARED_CONSTRUCTION_PATH=/inspire/hdd/global_user/26010
   --max-tokens 131072 \
   --include-construction \
   --log-interval 16 \
-  --output-path checkpoints/erdos-A-v4pro-high
+  --output-path checkpoints/erdos-A-v4pro-r2
 echo "EXITCODE=$?"
