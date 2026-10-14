@@ -222,7 +222,40 @@ $$
 $$
 |C_5(h_{N,\mathrm{rel}})-C_5(Q(h_{N,\mathrm{rel}}))|\le2\varepsilon_N.
 $$
-质量正确本身并不能保证 $\varepsilon_N$ 小。
+若直接对一个连续 Lipschitz 函数采样成网格值，得到第一阶段阶梯函数 $h_{N,\mathrm{rel}}$，则
+$$
+\|h_{\mathrm{rel}}-h_{N,\mathrm{rel}}\|_1\le L/N.
+$$
+现在解释第二阶段的 $\varepsilon_N$：它不是另一个预先已知的常数，也不是由 $N$ 自动决定的误差，而是对一个**指定的二值化规则** $Q_N$ 所作的假设/证明目标。令
+$$
+h_{N,\mathrm{bin}}=Q_N(h_{N,\mathrm{rel}}),\qquad h_{N,\mathrm{bin}}=\mathbf1_{A_N},\qquad |A_N|=1,
+$$
+并要求证明
+$$
+\varepsilon_N\ge \|h_{N,\mathrm{rel}}-h_{N,\mathrm{bin}}\|_{L^1([0,2])}.
+$$
+这个距离是两函数在整个区间上的绝对差积分；它量化分数值网格函数被二值化后改动了多少“质量”。若 $h_{N,\mathrm{rel}}$ 和 $h_{N,\mathrm{bin}}$ 都质量正确，则 $\int(h_{N,\mathrm{rel}}-h_{N,\mathrm{bin}})=0$，故
+$$
+\varepsilon_N\ge\|h_{N,\mathrm{rel}}-h_{N,\mathrm{bin}}\|_1
+=2\int_0^2\bigl(h_{N,\mathrm{rel}}(x)-h_{N,\mathrm{bin}}(x)\bigr)_+\,dx.
+$$
+由 $L^1$ 稳定性，第二阶段的目标值改变量最多是 $2\varepsilon_N$。所以从连续松弛函数，经网格采样，再经二值化，完整的两阶段误差保证是
+$$
+\boxed{\left|C_5(h_{\mathrm{rel}})-C_5(h_{N,\mathrm{bin}})\right|
+\le \frac{2L}{N}+2\varepsilon_N.}
+$$
+这里第一项来自连续 Lipschitz 函数到网格阶梯函数，第二项来自网格分数值函数到指定二值函数。若只比较 evaluator 评分的 $h_{N,\mathrm{rel}}$ 与其二值化结果，则去掉第一项：
+$$
+\boxed{\left|C_5(h_{N,\mathrm{rel}})-C_5(h_{N,\mathrm{bin}})\right|\le2\varepsilon_N.}
+$$
+这些是条件性保证：要得到数值误差界，必须构造 $Q_N$ 并实际证明 $\varepsilon_N$ 的上界。若 SimpleTES 只输出分数值数组，没有连续 Lipschitz 原函数，也没有二值化及其 $L^1$ 误差证明，则不能把 $2L/N+2\varepsilon_N$ 报作它当前搜索解已经满足的误差界。
+
+例如，若二值化采用“取值最高的 $N/2$ 个格子置为 1，其余置为 0”（假设 $N$ 为偶数并按规则处理并列值），则这个规则保证二值数组质量正确，但 $\varepsilon_N$ 必须按实际数组计算：
+$$
+\varepsilon_N=\Delta\sum_{i=0}^{N-1}|v_i-b_i|,
+\qquad b_i\in\{0,1\},\quad \sum_i b_i=N/2.
+$$
+该量可能很大；例如所有 $v_i=1/2$ 时，对任何质量正确的二值数组都有 $\varepsilon_N=1$，所以不能仅凭质量正确或 $N$ 大就断言二值化误差趋零。
 
 ### 松弛最优值与二值最优值
 
@@ -233,6 +266,10 @@ $$
 这是关于两个**全局最优值**的弱不等式，并非严格不等式，也不是“某个松弛候选值大于某个二值候选值”。对一个具体 $h_{N,\mathrm{rel}}$，它的目标值既不自动上界 $C_{\mathrm{bin}}^*$，也不自动低于或高于某个由它二值化得到的候选。若有满足质量的二值函数 $h_{\mathrm{bin}}$，且证得 $C_5(h_{\mathrm{bin}})\le C_5(h_{N,\mathrm{rel}})$，那么 $h_{\mathrm{bin}}$ 才给出二值问题的候选上界；可行类包含关系本身不提供这样的候选构造。
 
 ### 总结：当前可声称与不可声称的结论
+
+$$
+\boxed{\left|C_5(h_{\mathrm{rel}})-C_5(h_{N,\mathrm{bin}})\right|\le \frac{2L}{N}+2\varepsilon_N}
+$$
 
 1. 对 evaluator 实际评分的有限阶梯函数，相关计算可精确给出该阶梯函数的连续移位目标值（忽略浮点舍入误差）。
 2. 对固定连续且有已知正则性常数的 $h_{\mathrm{rel}}$，可用前文的模连续/Lipschitz 界控制它与特定网格近似之间的误差；这需要该候选确实由该 $h_{\mathrm{rel}}$ 采样得到，并计入质量投影的影响。
