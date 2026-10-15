@@ -360,6 +360,9 @@ class TrajectoryPolicyBase(Selector):
         messages: list[dict[str, str]],
         temperature: float = 0.7,
         max_tokens: int | None = None,
+        timeout: float | None = None,
+        num_retries: int | None = None,
+        extra_body_override: dict[str, Any] | None = None,
     ) -> Any:
         """Unified async LLM interface for all policy operations.
 
@@ -367,6 +370,15 @@ class TrajectoryPolicyBase(Selector):
             messages: Chat messages in OpenAI format [{"role": "user", "content": "..."}]
             temperature: Sampling temperature (default: 0.7)
             max_tokens: Optional max tokens limit
+            timeout: Optional per-request timeout in seconds. Without this the
+                OpenAI SDK's 600 s default applies, which is far too short for a
+                reasoning endpoint configured with a large thinking budget.
+            num_retries: Optional retry count. Explicitly 0 for long reasoning
+                calls — retrying a call that timed out *because it was slow*
+                just multiplies wall clock.
+            extra_body_override: Optional replacement for the SIMPLETES_EXTRA_BODY
+                request body, for calls that need a different thinking budget
+                than generation does (e.g. a two-line reflection summary).
 
         Returns:
             ``choices[0].message`` from LiteLLM (use ``.content``, etc. in the caller).
@@ -390,19 +402,29 @@ class TrajectoryPolicyBase(Selector):
             kwargs["api_base"] = self.llm_policy_api_base
         if max_tokens is not None:
             kwargs["max_tokens"] = max_tokens
+        if timeout is not None:
+            kwargs["timeout"] = timeout
+        if num_retries is not None:
+            kwargs["num_retries"] = num_retries
+        # Never let litellm raise on a param this gateway does not advertise.
+        kwargs["drop_params"] = True
 
-        # Same provider-specific request-body passthrough as the generator client
-        # (see simpletes/llm/litellm_client.py). The reflection/policy LLM hits
-        # the same gateway, so it needs the same thinking control; without it a
-        # Qwen-style endpoint can spend the whole budget on hidden reasoning.
-        raw_extra = os.environ.get("SIMPLETES_EXTRA_BODY")
-        if raw_extra:
-            try:
-                extra = json.loads(raw_extra)
-                if isinstance(extra, dict) and extra:
-                    kwargs["extra_body"] = extra
-            except (ValueError, TypeError):
-                pass  # malformed is ignored here; litellm_client warns once
+        # Provider-specific request-body passthrough (see
+        # simpletes/llm/litellm_client.py). The reflection/policy LLM hits the
+        # same gateway, so it needs thinking control too; without it a Qwen-style
+        # endpoint can spend the whole budget on hidden reasoning.
+        if extra_body_override is not None:
+            if extra_body_override:
+                kwargs["extra_body"] = extra_body_override
+        else:
+            raw_extra = os.environ.get("SIMPLETES_EXTRA_BODY")
+            if raw_extra:
+                try:
+                    extra = json.loads(raw_extra)
+                    if isinstance(extra, dict) and extra:
+                        kwargs["extra_body"] = extra
+                except (ValueError, TypeError):
+                    pass  # malformed is ignored here; litellm_client warns once
 
         res = await acompletion(**kwargs)
         return res.choices[0].message
@@ -423,25 +445,45 @@ class TrajectoryPolicyBase(Selector):
             code=node.code,
             metrics=metrics_to_text(node.metrics),
         )
-        # Raw output cap must leave room for the visible reply: on gateways with
-        # a separate thinking channel (SIMPLETES_EXTRA_BODY thinking_budget),
-        # reasoning tokens count against max_tokens, so a 2048 cap can come back
-        # empty. Give the reflection call headroom when a budget is configured.
-        reflection_max_tokens = 2048
-        raw_extra = os.environ.get("SIMPLETES_EXTRA_BODY")
-        if raw_extra:
-            try:
-                extra = json.loads(raw_extra)
-                tb = int(extra.get("thinking_budget", 0)) if isinstance(extra, dict) else 0
-                reflection_max_tokens = max(reflection_max_tokens, 2048 + min(tb, 16384))
-            except (ValueError, TypeError):
-                pass
+        # The reflection output is a two-line Approach/Insight summary, so it does
+        # NOT need the deep thinking budget that generation uses. Reusing the
+        # generation budget here would put a ~45-90 min call on the critical path
+        # (finalize_batch runs inside an eval worker) once per batch — hours of
+        # dead time for a two-line answer, and with no timeout it would silently
+        # fall back to the SDK's 600 s default and come back empty.
+        #
+        # So: give reflection its own small, bounded thinking budget and an
+        # explicit timeout / no-retry, sized from SIMPLETES_REFLECTION_THINKING
+        # (default 8192 ≈ 3 min/call). max_tokens must still exceed the thinking
+        # budget because reasoning tokens count against the completion budget on
+        # these gateways.
+        try:
+            refl_thinking = int(os.environ.get("SIMPLETES_REFLECTION_THINKING", "8192"))
+        except (TypeError, ValueError):
+            refl_thinking = 8192
+        refl_thinking = max(0, min(refl_thinking, 16384))
+        reflection_max_tokens = 2048 + refl_thinking
+        # Always send an explicit override so reflection never inherits the deep
+        # generation budget from SIMPLETES_EXTRA_BODY. thinking_budget==0 means
+        # "no reasoning channel" — expressed as enable_thinking:false, which this
+        # gateway honours (verified); any positive value becomes a bounded budget.
+        reflection_extra_body = (
+            {"thinking_budget": refl_thinking} if refl_thinking > 0
+            else {"enable_thinking": False}
+        )
+        try:
+            refl_timeout = float(os.environ.get("SIMPLETES_REFLECTION_TIMEOUT", "1200"))
+        except (TypeError, ValueError):
+            refl_timeout = 1200.0
 
         try:
             msg = await self._llm_generate(
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.7,
                 max_tokens=reflection_max_tokens,
+                timeout=refl_timeout,
+                num_retries=0,
+                extra_body_override=reflection_extra_body,
             )
             content = msg if isinstance(msg, str) else getattr(msg, "content", "")
             text = (content or "").strip()
