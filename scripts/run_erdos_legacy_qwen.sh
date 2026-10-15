@@ -31,11 +31,17 @@ export EVALUATOR_CONCURRENT_PROCESSES=4
 # completion budget on hidden reasoning and never emits content (the worker hangs
 # until the request timeout). Bound the thinking channel via the gateway's own
 # knob, forwarded through litellm extra_body by SIMPLETES_EXTRA_BODY support in
-# litellm_client.py / policies/base.py. Verified on this endpoint: thinking_budget
-# keeps reasoning separate from content and returns in ~1-2 min per generation.
+# litellm_client.py / policies/base.py.
+# LATENCY (measured on the real 5.8k-char prompt, this endpoint):
+#   thinking_budget=16384 -> one generation ~364s, completion ~16.9k tokens,
+#                            content ~1.4k chars (a real program).
+#   thinking_budget=32768 -> >900s, which is why the first formal attempt hit
+#                            litellm APITimeoutError at --timeout 900.
+# So: budget 16384 keeps reasoning substantive yet finishes in ~6 min, and
+# --timeout 1500 gives >4x margin over the observed single-call latency.
 # NOTE: SIMPLETES_FORCE_REASONING_EFFORT is intentionally NOT set — it pins
 # allowed_openai_params=["reasoning_effort"], which qwen's gateway rejects.
-export SIMPLETES_EXTRA_BODY='{"thinking_budget": 32768}'
+export SIMPLETES_EXTRA_BODY='{"thinking_budget": 16384}'
 export SIMPLETES_INITIAL_SHARED_CONSTRUCTION_PATH=/inspire/hdd/global_user/260107010002/home/SimpleTES/best_results/mathematics_discovery/erdos_minimum_overlap/erdos_minimum_overlap_best_construction.json
 
 .venv/bin/python main.py \
@@ -52,7 +58,7 @@ export SIMPLETES_INITIAL_SHARED_CONSTRUCTION_PATH=/inspire/hdd/global_user/26010
   --eval-concurrency 4 \
   --init-eval-repeats 2 \
   --max-tokens 65536 \
-  --timeout 900 \
+  --timeout 1500 \
   --include-construction \
   --log-interval 16 \
   --output-path checkpoints/erdos-legacy-qwen-r3
