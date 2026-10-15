@@ -99,6 +99,15 @@ def verify_c5_solution(h_values: np.ndarray, c5_achieved: float, n_points: int):
     if np.any(h_values < 0) or np.any(h_values > 1):
         raise ValueError(f"h(x) is not in [0, 1]. Range: [{h_values.min()}, {h_values.max()}]")
 
+    # Degenerate-solution guard (added, not in the original verifier): a constant
+    # h is feasible and scores C5 = 0.5 (the trivial maximizer of the overlap),
+    # so under the reciprocal score it farms a guaranteed 2.0 without solving
+    # anything. Reject it here rather than via prompt text, so it lands in the
+    # failure-pattern histogram instead of occupying a score slot. ptp < 1e-9
+    # only fires on truly flat arrays; real constructions (ptp ~ 1.0) pass.
+    if float(np.ptp(h_values)) < 1e-9:
+        raise ValueError("degenerate_constant_solution: h is constant (trivial overlap maximizer)")
+
     n = n_points
     target_sum = n / 2.0
     current_sum = np.sum(h_values)

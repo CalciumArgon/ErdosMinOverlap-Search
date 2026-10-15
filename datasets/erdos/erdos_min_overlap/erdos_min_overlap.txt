@@ -20,6 +20,8 @@ Feasibility is checked exactly, do not rely on tolerance:
   comparison fail and the candidate is discarded as invalid.
 - Every entry must stay in [0, 1] both before and after any rescale.
 - n_points must be a positive int and equal len(h_values).
+- A constant h_values (no variation at all) is rejected as degenerate: the flat
+  profile is the trivial maximizer of the overlap, not a candidate solution.
 
 Cost note: the correlation is O(n_points^2) work in float64 and your program runs
 under a 1100-second evaluation budget that also has to cover everything your
@@ -27,76 +29,15 @@ run_code() does (construction, local search, any self-checks you add). Larger
 n_points buys resolution; it does not by itself buy a better or more trustworthy
 score.
 
-## What the score means — read this before optimizing
+## One thing worth keeping in mind
 
-The evaluator recomputes C5 independently from h_values and ignores any score you
-report except as a cross-check. The number it computes is exact (up to float
-rounding) for the grid function you returned: on a uniform grid the sliding-window
-objective M(s) = ∫ h(x)(1 − h(x+s)) dx is piecewise linear in the continuous shift
-s, with slope changes only at integer multiples of dx, so its maximum over all
-real shifts is attained at one of the integer shifts that mode="full" enumerates.
-Consequence: score differences between candidates are real signal about the
-candidates you submitted, not sampling noise, and the search is not being fooled
-by a lucky shift grid.
-
-But be clear about WHICH quantity that score bounds. The grid function you return
-is a two-stage relaxation of the original problem:
-
-1. Value relaxation: h takes values in [0, 1], not just {0, 1}. The original
-   combinatorial object is a subset A of [0, 2] with |A| = 1 and h = 1_A.
-2. Discretization: h is constant on n_points fixed cells instead of being an
-   arbitrary function of a continuum of points.
-
-Let C*_relax be the infimum over the relaxed class and C*_bin over indicator
-functions. Every indicator function is also a [0,1]-valued function, so
-C*_relax <= C*_bin, and the reverse inequality is not established here. A lower
-score therefore lowers a certified upper bound on C*_relax. It does NOT by itself
-certify closeness to the binary / continuum ground truth, and no value of
-n_points alone supplies such a bound.
-
-Two specific ways a low score can be misleading:
-
-- Grid-scale structure. A construction whose benefit comes from features at the
-  scale of dx can change materially when the grid is refined, because the
-  underlying function is not stable under refinement.
-- Fractional smoothing. Intermediate values can reduce the max-overlap in a way
-  that no equal-mass {0,1}-valued function reproduces; that gain belongs to the
-  relaxation, not to the original problem.
-
-You are free to decide how much weight to give these considerations. What is
-asked is only that you not treat the score as if it were a bound on the original
-problem when it is not.
-
-## Judging your own candidates (optional, your call)
-
-Nothing here is required, and none of it is a target to optimize toward — these
-are ways to form your own judgment about whether a score you produced is
-trustworthy:
-
-- Refinement probe: re-score np.repeat(h_values, 2) at 2*n_points (mass is
-  preserved automatically: sum doubles and so does n_points). If C5 moves a lot,
-  the candidate's advantage was tied to the grid scale.
-- Binarization probe: compare C5 of h_values against C5 of a {0,1}-valued array
-  of the same length with the same total mass (n_points/2 ones), for instance one
-  built from the largest entries of h_values. The gap says how much of the
-  candidate's score depends on intermediate values.
-- Self-consistency: recompute c5_bound with the exact formula above on the final
-  array you return, after any projection or rounding step, so the cross-check
-  passes.
-
-A candidate whose score survives these probes is evidence about the problem; a
-candidate whose score does not is evidence about the grid. Which kind you want to
-submit, and how you trade that against the raw score, is your decision.
-
-## What is and is not fixed
-
-Fixed by the harness (do not try to change it): the objective, the feasibility
-checks, the independent recomputation, the 1100-second budget, the EVOLVE-BLOCK
-extraction.
-
-Open to you: n_points, how h_values is constructed, what search or construction
-strategy run_code() uses, whether to spend budget on self-checks, and how to
-interpret and act on the feedback you receive across generations.
+The grid function you return is a relaxation of the original problem: it allows
+fractional values in [0, 1] and a finite grid, where the original combinatorial
+object is a subset A of [0, 2] with |A| = 1 (h = 1_A) on a continuum. Your score
+is exact for the function you return, so a lower score is a valid bound on the
+relaxed optimum — but it is not automatically a bound on the original problem,
+and no value of n_points alone makes it one. How much weight to give that
+distinction, and what to do about it, is your call.
 
 The time limit for each program evaluation is 1100 seconds.
 
