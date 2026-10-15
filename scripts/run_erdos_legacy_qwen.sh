@@ -27,11 +27,15 @@ set -a
 . /inspire/hdd/global_user/260107010002/.secrets/simpletes.env
 set +a
 export EVALUATOR_CONCURRENT_PROCESSES=4
-# NOTE: SIMPLETES_FORCE_REASONING_EFFORT is intentionally NOT set. It pins
-# allowed_openai_params=["reasoning_effort"] (litellm_client.py:240-243), which
-# 4xx's if the qwen gateway rejects that field. drop_params=True handles the rest.
-# Re-enable only if a smoke test shows qwen burning the token budget on hidden
-# thinking (empty content).
+# qwen3.8-max is a reasoning model: with unbounded thinking it spends the whole
+# completion budget on hidden reasoning and never emits content (the worker hangs
+# until the request timeout). Bound the thinking channel via the gateway's own
+# knob, forwarded through litellm extra_body by SIMPLETES_EXTRA_BODY support in
+# litellm_client.py / policies/base.py. Verified on this endpoint: thinking_budget
+# keeps reasoning separate from content and returns in ~1-2 min per generation.
+# NOTE: SIMPLETES_FORCE_REASONING_EFFORT is intentionally NOT set — it pins
+# allowed_openai_params=["reasoning_effort"], which qwen's gateway rejects.
+export SIMPLETES_EXTRA_BODY='{"thinking_budget": 32768}'
 export SIMPLETES_INITIAL_SHARED_CONSTRUCTION_PATH=/inspire/hdd/global_user/260107010002/home/SimpleTES/best_results/mathematics_discovery/erdos_minimum_overlap/erdos_minimum_overlap_best_construction.json
 
 .venv/bin/python main.py \
@@ -47,7 +51,8 @@ export SIMPLETES_INITIAL_SHARED_CONSTRUCTION_PATH=/inspire/hdd/global_user/26010
   --gen-concurrency 4 \
   --eval-concurrency 4 \
   --init-eval-repeats 2 \
-  --max-tokens 131072 \
+  --max-tokens 65536 \
+  --timeout 900 \
   --include-construction \
   --log-interval 16 \
   --output-path checkpoints/erdos-legacy-qwen-r3

@@ -15,6 +15,7 @@ set -a
 . /inspire/hdd/global_user/260107010002/.secrets/simpletes.env
 set +a
 export EVALUATOR_CONCURRENT_PROCESSES=2
+export SIMPLETES_EXTRA_BODY='{"thinking_budget": 8192}'
 export SIMPLETES_INITIAL_SHARED_CONSTRUCTION_PATH=/inspire/hdd/global_user/260107010002/home/SimpleTES/best_results/mathematics_discovery/erdos_minimum_overlap/erdos_minimum_overlap_best_construction.json
 
 # Egress probe first: the boyuerichdata endpoint is external.
@@ -33,7 +34,8 @@ curl -sS -m 20 -o /dev/null -w "EGRESS_HTTP=%{http_code}\n" "$SIMPLELLM_BASE_URL
   --gen-concurrency 2 \
   --eval-concurrency 2 \
   --init-eval-repeats 1 \
-  --max-tokens 131072 \
+  --max-tokens 32768 \
+  --timeout 600 \
   --include-construction \
   --log-interval 1 \
   --output-path checkpoints/erdos-legacy-qwen-smoke

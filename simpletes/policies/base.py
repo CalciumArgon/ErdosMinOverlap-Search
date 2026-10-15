@@ -9,6 +9,8 @@ All critical sections should be kept minimal to avoid blocking the event loop.
 from __future__ import annotations
 
 import bisect
+import json
+import os
 import random
 import threading
 from dataclasses import dataclass
@@ -389,6 +391,19 @@ class TrajectoryPolicyBase(Selector):
         if max_tokens is not None:
             kwargs["max_tokens"] = max_tokens
 
+        # Same provider-specific request-body passthrough as the generator client
+        # (see simpletes/llm/litellm_client.py). The reflection/policy LLM hits
+        # the same gateway, so it needs the same thinking control; without it a
+        # Qwen-style endpoint can spend the whole budget on hidden reasoning.
+        raw_extra = os.environ.get("SIMPLETES_EXTRA_BODY")
+        if raw_extra:
+            try:
+                extra = json.loads(raw_extra)
+                if isinstance(extra, dict) and extra:
+                    kwargs["extra_body"] = extra
+            except (ValueError, TypeError):
+                pass  # malformed is ignored here; litellm_client warns once
+
         res = await acompletion(**kwargs)
         return res.choices[0].message
 
@@ -408,11 +423,25 @@ class TrajectoryPolicyBase(Selector):
             code=node.code,
             metrics=metrics_to_text(node.metrics),
         )
+        # Raw output cap must leave room for the visible reply: on gateways with
+        # a separate thinking channel (SIMPLETES_EXTRA_BODY thinking_budget),
+        # reasoning tokens count against max_tokens, so a 2048 cap can come back
+        # empty. Give the reflection call headroom when a budget is configured.
+        reflection_max_tokens = 2048
+        raw_extra = os.environ.get("SIMPLETES_EXTRA_BODY")
+        if raw_extra:
+            try:
+                extra = json.loads(raw_extra)
+                tb = int(extra.get("thinking_budget", 0)) if isinstance(extra, dict) else 0
+                reflection_max_tokens = max(reflection_max_tokens, 2048 + min(tb, 16384))
+            except (ValueError, TypeError):
+                pass
+
         try:
             msg = await self._llm_generate(
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.7,
-                max_tokens=2048,
+                max_tokens=reflection_max_tokens,
             )
             content = msg if isinstance(msg, str) else getattr(msg, "content", "")
             text = (content or "").strip()

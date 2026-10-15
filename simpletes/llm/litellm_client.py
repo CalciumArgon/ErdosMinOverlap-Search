@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import atexit
+import json
 import multiprocessing as mp
 import os
 import traceback
@@ -241,6 +242,23 @@ class LLMClient:
         if forced and "gpt-oss" not in self.model:
             kwargs["reasoning_effort"] = forced
             kwargs["allowed_openai_params"] = ["reasoning_effort"]
+
+        # Provider-specific request-body passthrough for OpenAI-compatible
+        # gateways whose thinking controls are not `reasoning_effort` (e.g. Qwen
+        # uses `enable_thinking` / `thinking_budget`). Without a bound these
+        # endpoints can spend the entire completion budget on hidden reasoning
+        # and never emit content, hanging the worker until the request timeout.
+        # Set SIMPLETES_EXTRA_BODY to a JSON object; it is merged verbatim into
+        # litellm's `extra_body`, which is forwarded to the chat-completions
+        # request. Malformed JSON is ignored (loudly) rather than fatal.
+        raw_extra = os.environ.get("SIMPLETES_EXTRA_BODY")
+        if raw_extra:
+            try:
+                extra = json.loads(raw_extra)
+                if isinstance(extra, dict) and extra:
+                    kwargs["extra_body"] = extra
+            except (ValueError, TypeError) as e:
+                rich_print(f"[yellow]SIMPLETES_EXTRA_BODY is not valid JSON, ignored: {e}[/yellow]")
 
         return {k: v for k, v in kwargs.items() if v is not None}
 
