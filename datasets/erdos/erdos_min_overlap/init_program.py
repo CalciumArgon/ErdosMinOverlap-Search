@@ -1,109 +1,109 @@
-"""Erdős minimum overlap — exact piecewise protocol (A类).
+"""Erdős minimum overlap — legacy dense-grid protocol.
 
-construct_h() must return (breaks, values):
-  breaks: m+1 fractions.Fraction, strictly increasing, breaks[0] == 0, breaks[-1] == 2.
-  values: m-1 Fractions in [0,1] — one per segment EXCEPT the last; the evaluator
-          balances the last segment exactly: v_last = (1 - sum(v_i*w_i)) / w_last.
-Legacy 3-tuples (h_values, c5_bound, n_points) are accepted for warm-start only.
+construct_h() returns (h_values, n_points):
+  h_values: 1-D float array of length n_points, entries in [0, 1].
+  n_points: int, number of uniform grid cells over [0, 2] (dx = 2 / n_points).
+
+run_code() (below the EVOLVE-BLOCK, fixed by the harness) projects h_values onto
+the feasible set {0 <= h <= 1, sum(h) == n_points / 2 exactly}, recomputes
+c5_bound with the same formula the evaluator uses, and returns the 3-tuple
+(h_values, c5_bound, n_points) the evaluator expects.
+
+GLOBAL_BEST_CONSTRUCTION, when present, is a validated (h_values, c5_bound,
+n_points) tuple from the current chain-best solution and is used as a warm start.
 """
 # EVOLVE-BLOCK-START
-from fractions import Fraction
-
 import numpy as np
 
 
-def _project_box_sum(v, s, lo=0.0, hi=1.0):
-    # Bisection on tau for x = clip(v - tau, lo, hi) such that sum(x) = s.
-    if not np.all(np.isfinite(v)):
-        raise ValueError("h_values contain NaN or inf values")
-    tau_lo = float(np.min(v) - hi)
-    tau_hi = float(np.max(v) - lo)
-    for _ in range(80):
-        tau = (tau_lo + tau_hi) / 2.0
-        x = np.clip(v - tau, lo, hi)
-        if float(np.sum(x, dtype=np.float64)) > s:
-            tau_lo = tau
-        else:
-            tau_hi = tau
-    return np.clip(v - tau_hi, lo, hi)
-
-
-def _legacy_to_spec(g):
-    """Warm-start only: compress a legacy (h, c5, n) global into an A类 spec.
-
-    Greedy epsilon-merge of adjacent cells (|v - run_mean| <= 0.02) with
-    dyadic-mean run values (denominator 2^16) — measured on the paper
-    solution this preserves c5 to ~1e-4 with ~300 segments, while uniform
-    quantization destroys it (the optimum's intermediate values carry most
-    of the optimality). The balanced segment is chosen as a TAIL of
-    consecutive runs (split point k) so the auto-balanced value stays in
-    [0,1]; the evaluator re-balances it exactly.
-    """
-    h = np.asarray(g[0], dtype=np.float64).reshape(-1)
-    n = int(g[2])
-    if h.shape[0] != n or n < 1:
-        return None
-    EPS = 0.02
-    runs = []
-    cur, mean = [0], h[0]
-    for i in range(1, n):
-        if abs(h[i] - mean) <= EPS:
-            cur.append(i)
-            mean = np.mean(h[cur])
-        else:
-            runs.append((cur[0], i, mean))
-            cur, mean = [i], h[i]
-    runs.append((cur[0], n, mean))
-    if len(runs) > 512:
-        return None
-    breaks_all = [Fraction(2 * r[0], n) for r in runs] + [Fraction(2, 1)]
-    values_all = [Fraction(int(round(r[2] * 2**16)), 2**16) for r in runs]
-    widths = [breaks_all[i + 1] - breaks_all[i] for i in range(len(values_all))]
-    mass = sum(values_all[i] * widths[i] for i in range(len(values_all)))
-    for k in range(len(values_all) - 1, 0, -1):
-        mass -= values_all[k] * widths[k]
-        w_tail = Fraction(2, 1) - breaks_all[k]
-        if 1 - w_tail <= mass <= 1:
-            return breaks_all[: k + 1] + [Fraction(2, 1)], values_all[:k]
-    return None
-
-
-def _decode_global(g):
-    """Decode GLOBAL_BEST_CONSTRUCTION into a returnable construction, or None."""
-    if isinstance(g, dict) and g.get("kind") == "spec":
-        try:
-            breaks = [Fraction(n, d) for n, d in g["breaks"]]
-            vals = [Fraction(n, d) for n, d in g["values"]][:-1]
-            if len(vals) == len(breaks) - 1:
-                return breaks, vals
-        except Exception:
-            pass
-    if isinstance(g, (tuple, list)) and len(g) == 3:
-        try:
-            return _legacy_to_spec(g)
-        except Exception:
-            pass
-    return None
-
-
-def _default_spec():
-    """Simple valid spec: h ≡ 1/2 (m=8 uniform blocks); exact mass, C5 = 1/2."""
-    breaks = [Fraction(k, 4) for k in range(9)]
-    return breaks, [Fraction(1, 2)] * 7
-
-
 def construct_h():
+    """Return (h_values, n_points) for the dense-grid protocol.
+
+    Warm-starts from GLOBAL_BEST_CONSTRUCTION when it is a usable
+    (h, c5, n) tuple; otherwise falls back to a neutral feasible array.
+    The fallback is deliberately non-degenerate: a flat h ≡ 0.5 satisfies the
+    constraints but is the trivial maximizer of the overlap (C5 = 0.5), so it is
+    only a last-resort seed, never a target.
+    """
+    g = None
     try:
-        g = GLOBAL_BEST_CONSTRUCTION  # builtin installed by the framework (sitecustomize)
+        g = GLOBAL_BEST_CONSTRUCTION  # installed by the framework when provided
     except Exception:
         g = None
-    out = _decode_global(g)
-    return out if out is not None else _default_spec()
+
+    if isinstance(g, (tuple, list)) and len(g) == 3:
+        try:
+            h = np.asarray(g[0], dtype=np.float64).reshape(-1)
+            n = int(g[2])
+            if h.shape[0] == n and n > 0 and np.all(np.isfinite(h)):
+                return np.clip(h, 0.0, 1.0), n
+        except Exception:
+            pass
+
+    # Neutral fallback: 240 random cells perturbed around 0.5, mean preserved.
+    rng = np.random.default_rng(0)
+    n = 240
+    h = 0.5 + rng.uniform(-0.4, 0.4, n)
+    h -= h.mean() - 0.5          # keep mean at 0.5 so projection is a no-op-ish
+    return np.clip(h, 0.0, 1.0), n
 
 # EVOLVE-BLOCK-END
 
 
 def run_code():
-    """Returns whatever construct_h() returns: (breaks, values) Fractions (A类)
-    or a legacy (h_values, c5_bound, n_points) tuple for warm-start."""
-    return construct_h()
+    """Run the Erdős minimum overlap construction and return the 3-tuple.
+
+    Returns:
+        tuple: (h_values, c5_bound, n_points)
+            h_values: np.ndarray, shape (n_points,), discretized step function h
+            c5_bound: float, max overlap recomputed from this h_values
+            n_points: int, number of bins used to discretize [0, 2]
+    """
+    h_values, n_points = construct_h()
+
+    n = int(n_points)
+    target_sum = n / 2.0
+
+    h_values = np.asarray(h_values, dtype=np.float64).reshape(-1)
+    if h_values.shape[0] != n:
+        raise ValueError(f"Expected h_values shape ({n},), got {h_values.shape}")
+    if not np.all(np.isfinite(h_values)):
+        raise ValueError("h_values contain NaN or inf values")
+
+    def _project_box_sum(v: np.ndarray, s: float, lo: float = 0.0, hi: float = 1.0) -> np.ndarray:
+        # Bisection on tau for x = clip(v - tau, lo, hi) such that sum(x) == s.
+        tau_lo = float(np.min(v) - hi)
+        tau_hi = float(np.max(v) - lo)
+        for _ in range(80):
+            tau = (tau_lo + tau_hi) / 2.0
+            x = np.clip(v - tau, lo, hi)
+            if float(np.sum(x, dtype=np.float64)) > s:
+                tau_lo = tau
+            else:
+                tau_hi = tau
+        return np.clip(v - tau_hi, lo, hi)
+
+    h_values = _project_box_sum(h_values, target_sum)
+
+    # The evaluator requires sum(h) == n/2 EXACTLY; the projection lands within
+    # float tolerance, so nudge the residual onto a single interior cell that has
+    # slack. This keeps the exact-equality cross-check from tripping a rescale.
+    residual = target_sum - float(np.sum(h_values, dtype=np.float64))
+    if residual != 0.0:
+        if residual > 0:
+            room = 1.0 - h_values
+            idx = int(np.argmax(room))
+            if room[idx] >= residual:
+                h_values[idx] += residual
+        else:
+            need = -residual
+            idx = int(np.argmax(h_values))
+            if h_values[idx] >= need:
+                h_values[idx] -= need
+
+    dx = 2.0 / n_points
+    j_values = 1.0 - h_values
+    correlation = np.correlate(h_values, j_values, mode="full") * dx
+    c5_bound = float(np.max(correlation))
+
+    return h_values, c5_bound, n_points

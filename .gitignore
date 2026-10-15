@@ -36,6 +36,9 @@ debug_runs/
 # LLM keys
 keys
 
+# Local staging for cluster transfers (may hold real API keys — never commit)
+.tmp_remote/
+
 # Local launcher profiles
 profiles/
 

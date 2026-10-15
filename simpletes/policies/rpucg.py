@@ -25,9 +25,20 @@ if TYPE_CHECKING:
     from simpletes.node import Node, NodeDatabaseSnapshot
 
 
-# RPUCG-specific reflection template: an SEv2-style two-line Approach/Insight
-# summary. Every other policy uses the two-paragraph REFLECTION_PROMPT_TEMPLATE
-# from simpletes.templates.reflection; rpucg overrides it via REFLECTION_TEMPLATE.
+# RPUCG-specific reflection template. Every other policy uses the two-paragraph
+# REFLECTION_PROMPT_TEMPLATE from simpletes.templates.reflection; rpucg overrides
+# it via REFLECTION_TEMPLATE.
+#
+# The Insight line asks for evaluation-level judgment rather than free-form
+# lessons: whether the measured score is trustworthy evidence about the task's
+# underlying objective, or plausibly an artifact of how the harness approximates
+# that objective (discretization, relaxation, surrogate metrics, self-reported
+# numbers, budget-dependent search inside the candidate). This is the only
+# cross-generation memory channel, so evaluation reasoning recorded here is what
+# later generations can build on.
+#
+# The response must still begin with the literal token 'Approach:' —
+# extract_approach_insight() in simpletes/utils/text.py discards anything else.
 RPUCG_REFLECTION_PROMPT_TEMPLATE = """\
 Instruction for an LLM:
 {llm_input}
@@ -38,9 +49,10 @@ New solution metrics:
 {metrics}
 
 Your task is to write reflections for this solution.
-Write a **concise plain-text summary with exactly two lines**:
-Approach: <what idea the solution tried>
-Insight: <what lessons can be learned for future improvement>
+Write a **concise plain-text summary with exactly two lines** (one line each, no
+line breaks inside a line):
+Approach: <what the solution actually did, stated factually>
+Insight: <judgment about the EVIDENCE, never about the shape of a good answer. Does this score look like trustworthy information about the task's underlying objective, or could it be an artifact of how that objective is approximated here (grid resolution, relaxed variable domains, surrogate or self-reported numbers, search effort spent inside the time budget)? State what should be measured or varied next to tell those apart. Do not say what the solution ought to look like.>
 Your response can only have these two lines. The response must starts with 'Approach:'
 """
 

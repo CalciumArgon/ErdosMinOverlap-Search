@@ -1,57 +1,105 @@
-Minimize  C_5 = max_k ∫_0^2 h(x)(1 − h(x+k)) dx
-over step functions h: [0, 2] → [0, 1] with ∫_0^2 h(x) dx = 1.
+Minimize  C_5 = max_k ∫ h(x)(1 − h(x+k)) dx  over h: [0, 2] → [0, 1]
+with ∫_0^2 h(x) dx = 1, where h is represented as n_points samples on a uniform
+grid of [0, 2] (cell width dx = 2 / n_points).
 Do this by evolving the code between # EVOLVE-BLOCK-START and # EVOLVE-BLOCK-END.
 
-## Output protocol (exact piecewise, A类)
+## Output protocol (dense grid)
 
-construct_h() must return (breaks, values):
+run_code() must return the 3-tuple (h_values, c5_bound, n_points):
 
-- breaks: m+1 `fractions.Fraction` values, strictly increasing, breaks[0] == 0,
-  breaks[-1] == 2. They are the segment boundaries.
-- values: m−1 Fractions, each in [0,1] — one per segment EXCEPT the last.
-- The last segment value is not yours to choose: the evaluator sets
-      v_last = (1 − Σ v_i·w_i) / w_last,   w_i = breaks[i+1] − breaks[i],
-  so the mass constraint holds EXACTLY. If v_last falls outside [0,1] the
-  candidate is invalid (error code mass_balance_out_of_range).
-- Use only int or `fractions.Fraction` — floats are rejected
-  (error code break_or_value_is_float_use_Fraction(num,den)).
-- Limits: m ≤ 512 segments, every denominator ≤ 2^20, no zero-width segments.
-- run_code() must return whatever construct_h() returns.
+- h_values: 1-D float array of length n_points, every entry in [0, 1].
+- n_points: int, the number of grid cells (your choice; see the cost note below).
+- c5_bound: float, YOUR OWN value of
+      max( np.correlate(h_values, 1 - h_values, mode="full") * (2.0 / n_points) )
+  computed on the final h_values you return — not a target you were aiming for.
 
-## Scoring (exact, no self-report)
+Feasibility is checked exactly, do not rely on tolerance:
+- sum(h_values) must equal n_points / 2 EXACTLY (this is ∫h = 1 on the grid).
+  If it does not, the evaluator rescales h_values proportionally and then compares
+  its recomputed C5 against your c5_bound with atol=1e-8; a rescale makes that
+  comparison fail and the candidate is discarded as invalid.
+- Every entry must stay in [0, 1] both before and after any rescale.
+- n_points must be a positive int and equal len(h_values).
 
-M(s) = Σ_{p,q} v_p(1−v_q)·λ(I_p ∩ (I_q−s)) (sliding window) is piecewise linear
-in s with kinks at the pairwise break differences {b_j − b_i}; its max over
-s ∈ [−2,2] is attained at a kink. The evaluator recomputes it exactly in
-rational arithmetic and scores combined_score = 1/(1e-8 + U) where U is the
-exact max rounded UP (a certified upper bound). Self-reported scores are ignored.
+Cost note: the correlation is O(n_points^2) work in float64 and your program runs
+under a 1100-second evaluation budget that also has to cover everything your
+run_code() does (construction, local search, any self-checks you add). Larger
+n_points buys resolution; it does not by itself buy a better or more trustworthy
+score.
 
-## Mutations with semantics
+## What the score means — read this before optimizing
 
-- Moving break b_p shifts exactly the family of kinks {b_j − b_p} ∪ {b_p − b_j}.
-- Flipping a segment value 0↔1 changes that segment's overlap contribution on
-  all shifts (a global restructuring move).
-- Splitting a segment near active shifts is local refinement; merging is coarsening.
-- Known-optimal solutions are near-binary and blocky: prefer few segments,
-  values near 0/1, breaks at simple fractions (1/3, 1/4, ...).
+The evaluator recomputes C5 independently from h_values and ignores any score you
+report except as a cross-check. The number it computes is exact (up to float
+rounding) for the grid function you returned: on a uniform grid the sliding-window
+objective M(s) = ∫ h(x)(1 − h(x+s)) dx is piecewise linear in the continuous shift
+s, with slope changes only at integer multiples of dx, so its maximum over all
+real shifts is attained at one of the integer shifts that mode="full" enumerates.
+Consequence: score differences between candidates are real signal about the
+candidates you submitted, not sampling noise, and the search is not being fooled
+by a lucky shift grid.
 
-## Diagnostics returned per evaluation
+But be clear about WHICH quantity that score bounds. The grid function you return
+is a two-stage relaxation of the original problem:
 
-c5, c5_cert_lo, c5_cert_hi (zero-gap certificate bracket), n_segments, n_kinks,
-equioscillation_count (shifts within 1e-9 of the max — near-optimal solutions
-balance many competing shifts), active_shifts (top-3 binding shifts),
-active_sensitivity (exact slopes at the best shift and exact derivatives w.r.t.
-free values / break moves, auto-balance included).
-- local_optimal: True means all first-order moves are exhausted — you must
-  change the STRUCTURE (split/merge a segment), not just tune parameters.
-- move_hint: the single strongest exact move ("v3down gain 0.2500/unit" means
-  lowering value v3 by delta lowers the peak by 0.25*delta).
-- snap_hints: for each active shift, the nearest fraction with denominator ≤ 64
-  and the exact M there — if the gap is tiny, huge denominators buy nothing:
-  snap breaks to simple fractions.
+1. Value relaxation: h takes values in [0, 1], not just {0, 1}. The original
+   combinatorial object is a subset A of [0, 2] with |A| = 1 and h = 1_A.
+2. Discretization: h is constant on n_points fixed cells instead of being an
+   arbitrary function of a continuum of points.
+
+Let C*_relax be the infimum over the relaxed class and C*_bin over indicator
+functions. Every indicator function is also a [0,1]-valued function, so
+C*_relax <= C*_bin, and the reverse inequality is not established here. A lower
+score therefore lowers a certified upper bound on C*_relax. It does NOT by itself
+certify closeness to the binary / continuum ground truth, and no value of
+n_points alone supplies such a bound.
+
+Two specific ways a low score can be misleading:
+
+- Grid-scale structure. A construction whose benefit comes from features at the
+  scale of dx can change materially when the grid is refined, because the
+  underlying function is not stable under refinement.
+- Fractional smoothing. Intermediate values can reduce the max-overlap in a way
+  that no equal-mass {0,1}-valued function reproduces; that gain belongs to the
+  relaxation, not to the original problem.
+
+You are free to decide how much weight to give these considerations. What is
+asked is only that you not treat the score as if it were a bound on the original
+problem when it is not.
+
+## Judging your own candidates (optional, your call)
+
+Nothing here is required, and none of it is a target to optimize toward — these
+are ways to form your own judgment about whether a score you produced is
+trustworthy:
+
+- Refinement probe: re-score np.repeat(h_values, 2) at 2*n_points (mass is
+  preserved automatically: sum doubles and so does n_points). If C5 moves a lot,
+  the candidate's advantage was tied to the grid scale.
+- Binarization probe: compare C5 of h_values against C5 of a {0,1}-valued array
+  of the same length with the same total mass (n_points/2 ones), for instance one
+  built from the largest entries of h_values. The gap says how much of the
+  candidate's score depends on intermediate values.
+- Self-consistency: recompute c5_bound with the exact formula above on the final
+  array you return, after any projection or rounding step, so the cross-check
+  passes.
+
+A candidate whose score survives these probes is evidence about the problem; a
+candidate whose score does not is evidence about the grid. Which kind you want to
+submit, and how you trade that against the raw score, is your decision.
+
+## What is and is not fixed
+
+Fixed by the harness (do not try to change it): the objective, the feasibility
+checks, the independent recomputation, the 1100-second budget, the EVOLVE-BLOCK
+extraction.
+
+Open to you: n_points, how h_values is constructed, what search or construction
+strategy run_code() uses, whether to spend budget on self-checks, and how to
+interpret and act on the feedback you receive across generations.
 
 The time limit for each program evaluation is 1100 seconds.
 
-GLOBAL_BEST_CONSTRUCTION may be provided: a {"kind":"spec","breaks":[[n,d],...],
-"values":[[n,d],...]} dict (exact spec) or a legacy (h, c5, n) tuple — the init
-program decodes both; you may use or improve that logic.
+GLOBAL_BEST_CONSTRUCTION may be provided as a validated (h_values, c5_bound,
+n_points) tuple from the current chain-best solution. You may use it as a warm
+start, transform it, or ignore it; handle None and mismatched shapes safely.
