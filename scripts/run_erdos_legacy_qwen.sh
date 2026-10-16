@@ -41,10 +41,21 @@ export EVALUATOR_CONCURRENT_PROCESSES=4
 # is max_tokens=131072 with thinking_budget just under it, leaving ~8k for the
 # emitted program. Round 4 therefore runs the deepest FEASIBLE thinking:
 #   thinking_budget=122880, max_tokens=131072.
-# LATENCY (measured, this endpoint, ~46 tok/s completion):
-#   thinking_budget=16384  -> ~364s/call.
-#   thinking_budget=122880 -> see smoke; budget --timeout for ~2x the measured value.
-# Wall clock: 10 prompt waves x per-call latency; keep under the 24 h HPC cap.
+#
+# THINKING SEMANTICS (C.1c streamed campaign, 2026-10-16): this endpoint spends
+# the WHOLE thinking_budget on reasoning before emitting any content, at
+# ~45 tok/s. So a deep call sends zero bytes for the first ~45 min — not a dead
+# request, an alive-but-mute-until-done one. Streamed measurements:
+#   tb=16384 -> ~6 min thinking; tb=65536 -> 29 min; tb=122880 -> 31 min
+#   (parallel load; serial calls may differ). Non-streamed round trips are
+#   measured by the E/F probes (thinking + content + overhead).
+# CONSEQUENCE FOR --timeout: the generation path (litellm_client.py) is a
+# SYNCHRONOUS completion — one timeout for the whole call, thinking included.
+# A timeout shorter than think+write silently loses the entire batch slot
+# (LLMClient retry=0; the batch finalizes and the run keeps going, which is
+# exactly the "hours of useless thinking" failure we must not ship). Round-3's
+# 5400 covered a lone 16K call; this script runs 4-wide at tb=122880, where
+# per-call latency inflates under load — hence the much larger value below.
 # NOTE: SIMPLETES_FORCE_REASONING_EFFORT is intentionally NOT set — it pins
 # allowed_openai_params=["reasoning_effort"], which qwen's gateway rejects.
 export SIMPLETES_EXTRA_BODY='{"thinking_budget": 122880}'
@@ -69,7 +80,7 @@ export SIMPLETES_INITIAL_SHARED_CONSTRUCTION_PATH=/inspire/hdd/global_user/26010
   --eval-concurrency 4 \
   --init-eval-repeats 2 \
   --max-tokens 131072 \
-  --timeout 5400 \
+  --timeout 21600 \
   --include-construction \
   --log-interval 16 \
   --output-path checkpoints/erdos-legacy-qwen-r4
