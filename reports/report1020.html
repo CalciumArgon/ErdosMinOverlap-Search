@@ -1,0 +1,515 @@
+<title>Erdos Report 10/19</title>
+<meta name="description" content="Erdős minimum-overlap 搜索框架的三轮实验、理论边界与下一轮研究建议。">
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Direction: a cool laboratory notebook — measured results in monospaced ink, one warm signal color for decisions, and quiet blue-gray surfaces for long-form reading. */
+:root {
+  --bg: #f3f6f8;
+  --surface: #ffffff;
+  --surface-2: #e8eef2;
+  --surface-3: #dce7ed;
+  --text: #17252f;
+  --muted: #5d6d78;
+  --line: #c8d4da;
+  --accent: #087f8c;
+  --accent-strong: #05636d;
+  --accent-soft: #d9f0f1;
+  --signal: #c96b27;
+  --signal-soft: #fff0e2;
+  --good: #2d7b59;
+  --good-soft: #e4f2e9;
+  --warn: #a35d16;
+  --warn-soft: #fff3dd;
+  --display: "IBM Plex Sans", "Segoe UI", sans-serif;
+  --body: "IBM Plex Sans", "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #10191f;
+    --surface: #17242c;
+    --surface-2: #20323c;
+    --surface-3: #29404b;
+    --text: #e5edf0;
+    --muted: #a8b8bf;
+    --line: #3b515c;
+    --accent: #62c6ca;
+    --accent-strong: #8be0df;
+    --accent-soft: #173d43;
+    --signal: #f1a263;
+    --signal-soft: #4a2e1d;
+    --good: #75c79d;
+    --good-soft: #173b2c;
+    --warn: #f0b969;
+    --warn-soft: #44321c;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #10191f;
+  --surface: #17242c;
+  --surface-2: #20323c;
+  --surface-3: #29404b;
+  --text: #e5edf0;
+  --muted: #a8b8bf;
+  --line: #3b515c;
+  --accent: #62c6ca;
+  --accent-strong: #8be0df;
+  --accent-soft: #173d43;
+  --signal: #f1a263;
+  --signal-soft: #4a2e1d;
+  --good: #75c79d;
+  --good-soft: #173b2c;
+  --warn: #f0b969;
+  --warn-soft: #44321c;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  padding-block: 32px 64px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--body);
+  line-height: 1.65;
+  font-size: 15px;
+}
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0 0 auto;
+  height: env(safe-area-inset-top, 0px);
+  z-index: 10;
+  background: var(--bg);
+}
+.page { max-width: 1120px; margin: 0 auto; }
+.topline {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  color: var(--muted);
+  font: 12px var(--mono);
+  letter-spacing: .02em;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 12px;
+}
+.topline .mark { color: var(--accent); font-weight: 700; }
+.hero { padding: 44px 0 34px; max-width: 880px; }
+.eyebrow {
+  color: var(--accent-strong);
+  font: 700 12px var(--mono);
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  margin-bottom: 14px;
+}
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; }
+h1 {
+  font-size: clamp(2.1rem, 5vw, 4.3rem);
+  line-height: 1.04;
+  letter-spacing: -.045em;
+  margin: 0 0 20px;
+  max-width: 850px;
+}
+.hero .dek { font-size: clamp(1.05rem, 2vw, 1.25rem); color: var(--muted); max-width: 700px; margin: 0; }
+.rule { height: 3px; width: 76px; background: var(--signal); margin: 25px 0 0; }
+.summary {
+  display: grid;
+  grid-template-columns: 1.25fr .9fr .9fr;
+  gap: 12px;
+  margin: 0 0 42px;
+}
+.summary-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  padding: 20px;
+  min-width: 0;
+}
+.summary-card:first-child { border-top: 3px solid var(--signal); }
+.summary-card .label { color: var(--muted); font: 700 11px var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+.summary-card .value { display: block; color: var(--accent-strong); font: 700 clamp(1.5rem, 3vw, 2.25rem) var(--mono); letter-spacing: -.05em; margin: 7px 0 3px; }
+.summary-card .note { color: var(--muted); font-size: 13px; line-height: 1.45; }
+.nav {
+  position: sticky;
+  top: env(safe-area-inset-top, 0px);
+  z-index: 5;
+  background: color-mix(in srgb, var(--bg) 94%, transparent);
+  backdrop-filter: blur(12px);
+  border-block: 1px solid var(--line);
+  margin-bottom: 42px;
+}
+.nav-inner { display: flex; gap: 6px; overflow-x: auto; padding-block: 9px; }
+.nav a { color: var(--muted); text-decoration: none; white-space: nowrap; padding: 5px 9px; font: 12px var(--mono); }
+.nav a:hover, .nav a:focus-visible { color: var(--accent-strong); background: var(--accent-soft); outline: none; }
+section { scroll-margin-top: 56px; margin-bottom: 56px; }
+.section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 20px; border-bottom: 1px solid var(--line); padding-bottom: 10px; margin-bottom: 22px; }
+h2 { font-size: clamp(1.55rem, 3vw, 2.25rem); letter-spacing: -.035em; line-height: 1.15; margin: 0; }
+h3 { font-size: 1.15rem; line-height: 1.25; margin: 0 0 10px; }
+.section-tag { color: var(--accent); font: 700 12px var(--mono); }
+p { max-width: 68ch; margin: 0 0 14px; }
+strong { color: var(--text); }
+.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.muted { color: var(--muted); }
+.callout {
+  background: var(--accent-soft);
+  border-left: 4px solid var(--accent);
+  padding: 17px 19px;
+  margin: 20px 0;
+}
+.callout.signal { background: var(--signal-soft); border-left-color: var(--signal); }
+.callout.good { background: var(--good-soft); border-left-color: var(--good); }
+.callout p:last-child { margin-bottom: 0; }
+.timeline { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 12px 0 24px; }
+.stage { border-top: 3px solid var(--line); padding-top: 12px; min-width: 0; }
+.stage.done { border-top-color: var(--good); }
+.stage.current { border-top-color: var(--signal); }
+.stage .kicker { font: 700 11px var(--mono); color: var(--muted); }
+.stage h3 { margin-top: 6px; font-size: 1rem; }
+.stage p { font-size: 13px; color: var(--muted); line-height: 1.45; }
+.two-col { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+.three-col { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.panel { background: var(--surface); border: 1px solid var(--line); padding: 22px; min-width: 0; }
+.panel h3 { color: var(--accent-strong); }
+.panel ul, .panel ol { margin: 9px 0 0; padding-left: 20px; }
+.panel li { margin: 5px 0; }
+.compact li { margin: 2px 0; }
+.pill-row { display: flex; flex-wrap: wrap; gap: 7px; margin: 12px 0 0; }
+.pill { display: inline-flex; align-items: center; padding: 4px 8px; background: var(--surface-2); border: 1px solid var(--line); color: var(--muted); font: 12px var(--mono); }
+.pill.accent { color: var(--accent-strong); background: var(--accent-soft); border-color: transparent; }
+.pill.signal { color: var(--warn); background: var(--warn-soft); border-color: transparent; }
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); background: var(--surface); }
+table { width: 100%; min-width: 650px; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; vertical-align: top; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+th { color: var(--muted); background: var(--surface-2); font: 700 11px var(--mono); letter-spacing: .04em; text-transform: uppercase; }
+tr:last-child td { border-bottom: 0; }
+td:first-child { font-weight: 700; color: var(--accent-strong); }
+.result-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 18px 0 22px; }
+.result { background: var(--surface); border: 1px solid var(--line); padding: 15px; min-width: 0; }
+.result .number { display: block; font: 700 1.45rem var(--mono); color: var(--accent-strong); letter-spacing: -.04em; }
+.result .caption { color: var(--muted); font-size: 12px; line-height: 1.35; }
+.formula {
+  overflow-x: auto;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  padding: 16px 18px;
+  color: var(--text);
+  font: 15px/1.8 var(--mono);
+  margin: 16px 0;
+}
+.finding { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 12px; margin: 15px 0; }
+.finding .num { width: 26px; height: 26px; display: grid; place-items: center; background: var(--accent); color: var(--bg); font: 700 12px var(--mono); }
+.finding h3 { margin-bottom: 4px; }
+.finding p { color: var(--muted); font-size: 14px; }
+.verdict {
+  display: grid;
+  grid-template-columns: 1.1fr .9fr;
+  gap: 18px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  padding: 23px;
+  margin-top: 24px;
+}
+.verdict h3 { color: var(--signal); }
+.footer { border-top: 1px solid var(--line); padding-top: 18px; color: var(--muted); font-size: 12px; display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+@media (max-width: 760px) {
+  body { padding-block: 22px 48px; }
+  .hero { padding-top: 34px; }
+  .summary, .timeline, .two-col, .verdict { grid-template-columns: 1fr; }
+  .three-col { grid-template-columns: 1fr; }
+  .result-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .section-head { align-items: flex-start; flex-direction: column; gap: 7px; }
+}
+@media (max-width: 420px) {
+  body { font-size: 14px; }
+  .summary-card, .panel, .verdict { padding: 17px; }
+  .result-grid { gap: 8px; }
+  .result { padding: 12px; }
+  .result .number { font-size: 1.2rem; }
+}
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+</style>
+
+<div class="page">
+  <div class="topline">
+    <span class="mark">ERDŐS MINIMUM-OVERLAP / WEEKLY LAB NOTE</span>
+    <span>2026.10.19 · 组会版本</span>
+  </div>
+
+  <header class="hero">
+    <div class="eyebrow">Search review · rounds 1–3 + proof</div>
+    <h2>10/19 Report</h2>
+    <p class="dek">本周的版本 3 没有找到比论文 warm start 更好的候选，但它改变了模型的工作方式：模型开始主动检查网格和分数值松弛带来的偏差。下一轮不应只是继续调参，而应先验证我们到底在优化哪个问题。我们正在测量的，先是“分数是否可信”，再是“能否把分数做低”。</p>
+    <div class="rule"></div>
+  </header>
+
+  <div class="summary">
+    <div class="summary-card">
+      <span class="label">当前最好 c5</span>
+      <span class="value">0.3808677</span>
+      <span class="note">论文 warm start，三轮正式搜索还未超越。</span>
+    </div>
+    <div class="summary-card">
+      <span class="label">版本 3 有效候选</span>
+      <span class="value">37 / 38</span>
+      <span class="note">降低 trivial 解比例</span>
+    </div>
+    <div class="summary-card">
+      <span class="label">二值化对照</span>
+      <span class="value">+4.6%</span>
+      <span class="note">现象：0.3809 的分数值解二值化后约为 0.3983</span>
+    </div>
+  </div>
+
+  <nav class="nav" aria-label="文档目录">
+    <div class="nav-inner">
+      <a href="#map">实验地图</a>
+      <a href="#versions">Previous</a>
+      <a href="#proof">Error bound</a>
+      <a href="#v3">Current</a>
+      <a href="#results">Results</a>
+      <a href="#reflection">从头反思</a>
+      <a href="#next">计划</a>
+    </div>
+  </nav>
+
+  <main>
+    <section id="map">
+      <div class="section-head">
+        <!-- <h2>先看全局：四个阶段不是四个独立答案</h2> -->
+        <span class="section-tag">BRANCH MAP</span>
+      </div>
+      <div class="timeline">
+        <div class="stage done">
+          <div class="kicker">VERSION 1</div>
+          <h3>A 类精确 evaluator</h3>
+          <p>把候选改成有理数断点和段值，先保证“给定函数的分数”算得准。</p>
+        </div>
+        <div class="stage done">
+          <div class="kicker">VERSION 2</div>
+          <h3>结构化 warm start</h3>
+          <p>把 2400 维论文解压成可读的分段结构，让模型真的能从好起点继续改。</p>
+        </div>
+        <div class="stage done">
+          <div class="kicker">PROOF</div>
+          <h3>松弛误差边界</h3>
+          <p>说明网格误差和二值化误差如何进入一个条件性的总界。</p>
+        </div>
+        <div class="stage current">
+          <div class="kicker">VERSION 3 · THIS WEEK</div>
+          <h3>legacy-grid meta-search</h3>
+          <p>让模型判断自己的分数是否可信，测量 relaxation gap，而不是只追逐一个更大的 score。</p>
+        </div>
+      </div>
+      <div class="callout signal">
+        <p><strong>组会先讲这句话：</strong>版本 1 和 2 主要改进了“评测和表示”；版本 3 开始检查“我们评测的对象是不是原问题”。这也是本周从局部优化转向研究方向反思的原因。</p>
+      </div>
+    </section>
+
+    <section id="versions">
+      <div class="section-head">
+        <h2>Previous</h2>
+        <span class="section-tag">LAST TWO WEEKS</span>
+      </div>
+      <div class="two-col">
+        <article class="panel">
+          <h3>版本 1 · exact rational evaluator</h3>
+          <p>第一周加入 A 类精确有理 evaluator：候选输出断点和值，内核用 Fraction 扫描所有可能的 kink，并给出严格的 score certificate。论文的 2400 格浮点解仍作为 warm start，但它和 A 类表示并不匹配。</p>
+          <p>结果是 evaluator、证书和错误码都稳定工作，41 个节点中 38 个有效，最好仍是论文 warm start：<span class="mono">c5 ≈ 0.3808677</span>。14 个候选退化成 <span class="mono">h ≡ 1/2</span>，说明主要瓶颈不是算分，而是模型没有继承到正确的结构。</p>
+          <div class="pill-row"><span class="pill">4 chains × 4 candidates</span><span class="pill signal">35% trivial</span></div>
+        </article>
+        <article class="panel">
+          <h3>版本 2 · compressed warm start</h3>
+          <p>第二周把论文解压成约 300 段的 A 类结构，修正 tail split、质量平衡和端点，并加入 <span class="mono">local_optimal</span>、<span class="mono">move_hints</span>、<span class="mono">snap_hints</span>。模型现在看到的是“可以直接编辑的结构”，不再是 2400 行浮点程序。</p>
+          <p>表示问题和评测耗时明显改善：平均评测从 280.8 秒降到 14.3 秒，最佳演化候选距离 init 只有约 0.15%。但 26/40 个候选又回到了常数解，且高质量候选撞到 512 段上限；可见结构化输入解决了“看不懂起点”，没有解决“不会利用搜索信号”。</p>
+          <div class="pill-row"><span class="pill accent">20× faster</span><span class="pill">39 valid / 41 nodes</span><span class="pill signal">65% trivial</span></div>
+        </article>
+      </div>
+    </section>
+
+    <section id="proof">
+      <div class="section-head">
+        <h2>连续函数+分数松弛 error bound</h2>
+        <span class="section-tag">PROOF NOTE</span>
+      </div>
+      <!-- <p>proof 分支从 round 2 分叉，最终内容也已进入当前 exact 分支的 <span class="mono">proof.md</span>。它的作用不是给某个候选盖章，而是明确“什么情况下可以把搜索分数搬回原始二值集合问题”。</p> -->
+      <div class="formula">|C₅(f) − C₅(g)| ≤ 2 ||f − g||₁</div>
+      <p>目标函数对 <span class="mono">L¹</span> 距离稳定。只要能两个函数的距离小，目标值的差就有直接上界。</p>
+      <div class="two-col">
+        <div class="panel">
+          <h3>第一层：连续函数 → 均匀网格</h3>
+          <ul class="compact">
+            <li>若 <span class="mono">h</span> 一致连续：误差 ≤ <span class="mono">4ω<sub>h</sub>(1/N)</span>。</li>
+            <li>若 <span class="mono">h</span> 是 Lipschitz，常数为 <span class="mono">L</span>：误差 ≤ <span class="mono">2L/N</span>。</li>
+            <li>前提是候选确实来自这个固定连续函数的格心采样。</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>第二层：分数网格 → 二值网格</h3>
+          <ul class="compact">
+            <li>必须指定二值化规则 <span class="mono">Q<sub>N</sub></span>。</li>
+            <li>必须实际证明 <span class="mono">||h<sub>N,rel</sub> − h<sub>N,bin</sub>||₁ ≤ ε<sub>N</sub></span>。</li>
+            <li>二值化造成的目标变化 ≤ <span class="mono">2ε<sub>N</sub></span>。</li>
+          </ul>
+        </div>
+      </div>
+      <div class="callout good">
+        <p><strong>条件性总界：</strong></p>
+        <div class="formula">|C₅(h<sub>rel</sub>) − C₅(h<sub>N,bin</sub>)| ≤ 2L/N + 2ε<sub>N</sub></div>
+        <p>这个公式需要已知的正则性、明确的二值化规则和实际的 <span class="mono">ε<sub>N</sub></span>。它不是当前任意搜索数组的自动误差证书。</p>
+      </div>
+      <!-- <div class="callout signal">
+        <p><strong>必须保留的边界：</strong>有限分数值 relaxation 的全局最优值目前只能得到 <span class="mono">C<sub>relax</sub>* ≤ C<sub>binary</sub>*</span>。没有证明两者相等，也不能仅凭 <span class="mono">N</span> 或 A 类的 512 段上限推出 ground-truth 误差。尤其是 proof 中的 <span class="mono">2L/N</span> 针对均匀 dense grid，不直接适用于任意非均匀 A 类分段。</p>
+      </div> -->
+    </section>
+
+    <section id="v3">
+      <div class="section-head">
+        <h2>Current</h2>
+        <span class="section-tag">THIS WEEK / MOTIVATION</span>
+      </div>
+      <div class="callout">
+        <p><strong>新的假设：</strong>一个低分（好的解）到底是在告诉我们“找到了更好的对象”，还是只是在告诉我们“只是这个 relaxation 上更容易优化而非真实解更好”？（与gt的误差变大了）</p>
+      </div>
+      <div class="two-col">
+        <div>
+          <h3>从前两轮看到的根本矛盾</h3>
+          <p>前两轮不断改善 evaluator、warm start 和诊断，但真实目标没有改善。模型会把好解改坏，也会返回容易写的常数模板；更重要的是，A 类 exact evaluator 把连续网格和二值集合之间的 gap 暂时藏起来了。我们可能一直在优化一个更方便计算、但不等于原问题的目标。</p>
+          <p>所以版本 3 不再给模型大量“好解应该是什么形状”的提示，而是把判断权交给模型：让它检查网格分辨率、分数值取值和搜索过程本身会不会制造假象。</p>
+        </div>
+        <div>
+          <h3>本轮想验证的直觉</h3>
+          <ol>
+            <li>如果模型知道分数只是 relaxation，它会少交白卷，也会更谨慎地解释结果。</li>
+            <li>如果低分来自网格 artifact，加密网格后应该明显变差。</li>
+            <li>如果低分主要来自 fractional smoothing，二值化后应该出现可测的 gap。</li>
+            <li>如果 warm start 本身已经很好，模型应先保护基线，再做小扰动，而不是每次重写一个粗糙优化器。</li>
+          </ol>
+        </div>
+      </div>
+
+      <h3>新 setting：回到 legacy dense-grid，增加“自我评估”通道</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>部分</th><th>版本 3 的选择</th><th>为什么这样做</th></tr></thead>
+          <tbody>
+            <tr><td>表示</td><td>返回 <span class="mono">(h_values, c5_bound, n_points)</span>，允许 <span class="mono">h ∈ [0,1]</span> 的有限网格</td><td>保留两层 relaxation，直接观察有限网格分数和二值 ground truth 的距离。</td></tr>
+            <tr><td>初始解</td><td>继续提供论文 best construction 作为共享 warm start</td><td>把“搜索能力”和“起点质量”分开，避免模型从常数解重新开始。</td></tr>
+            <tr><td>任务提示</td><td>删掉 near-binary、少段、简单分数等形状暗示</td><td>不替模型预先判断好解长什么样，避免提示词本身决定结论。</td></tr>
+            <tr><td>Reflection</td><td>固定为两行 <span class="mono">Approach / Insight</span>，Insight 判断证据可信度</td><td>把跨代记忆从“我用了什么技巧”改成“这个分数需要怎样验证”。</td></tr>
+            <tr><td>模型</td><td>Qwen3.8-max，thinking budget 16384</td><td>控制隐藏思考时间，避免一批候选全部在 timeout 中消失。</td></tr>
+            <tr><td>评测</td><td>evaluator 独立重算相关值，不信任候选自报的分数</td><td>确保实验观察的是实际返回函数，而不是模型声称的结果。</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="panel" style="margin-top: 20px;">
+        <h3>改动</h3>
+        <p>本轮补齐了 Qwen gateway 的 <span class="mono">thinking_budget</span> 透传，并把 reflection 固定成短格式，解决了上一版深度思考导致的空输出和超时问题。代码提取、独立重算和共享 warm start 都继续沿用，工程目标是让本轮变化主要发生在“模型如何解释证据”，而不是发生在 evaluator 数值逻辑里。</p>
+      </div>
+    </section>
+
+    <section id="results">
+      <div class="section-head">
+        <h2>Results</h2>
+        <span class="section-tag">OBSERVATIONS</span>
+      </div>
+      <div class="result-grid">
+        <div class="result"><span class="number">38</span><span class="caption">候选总数</span></div>
+        <div class="result"><span class="number">37 / 38</span><span class="caption">有效候选</span></div>
+        <div class="result"><span class="number">16%</span><span class="caption">平凡 h=1/2，比 round 2 的 65% 低</span></div>
+        <div class="result"><span class="number">0.3983</span><span class="caption">最佳演化候选的 c5，仍差于 warm start</span></div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>指标</th><th>结果</th><th>应该怎样解释</th></tr></thead>
+          <tbody>
+            <tr><td>最佳总体结果</td><td><span class="mono">score ≈ 2.6256</span>，<span class="mono">c5 ≈ 0.3808676758</span></td><td>仍是论文 warm start；37 个有效演化候选没有超越它。</td></tr>
+            <tr><td>最佳演化候选</td><td><span class="mono">score ≈ 2.5105</span>，<span class="mono">c5 ≈ 0.3983</span></td><td>模型能接近基线，但当前优化步骤会把好解推离原来的 basin。</td></tr>
+            <tr><td>平凡候选</td><td>6/38，约 16%</td><td>比前两轮好，说明“评估可信度”的提示比直接禁止常数解更有效。</td></tr>
+            <tr><td>二值化 probe</td><td><span class="mono">0.3809 → 0.3983</span>，约 +4.6%</td><td>支持 fractional smoothing 确实存在；这是同一网格上的经验对照，不是全局 gap 定理。</td></tr>
+            <tr><td>可靠性诊断</td><td>模型开始主动检查分数来源、提出网格加密和二值化</td><td>模型的“报警能力”提高了，但仍会把具体故障归因错。</td></tr>
+            <!-- <tr><td>运行稳定性</td><td>约 1 小时 42 分；无 LLM timeout；一次模型代码错误</td><td>工程链路足以支持下一轮，但需要把“基线保护”做成硬约束。</td></tr> -->
+          </tbody>
+        </table>
+      </div>
+
+      <div class="three-col" style="margin-top: 22px;">
+        <div class="panel">
+          <h3>进步</h3>
+          <p>模型不再只看 score 大小。它主动做二值化实验，知道需要区分网格 artifact 和 fractional artifact，也开始质疑“我拿到的分数是不是我以为的那个函数”。</p>
+        </div>
+        <div class="panel">
+          <h3>仍未解决</h3>
+          <p>模型没有超过 warm start。很多候选仍用粗糙的 subgradient、模拟退火或内嵌长循环，先把已有好解破坏，再用有限预算试图修复。</p>
+        </div>
+        <div class="panel">
+          <h3>证据的边界</h3>
+          <p>“二值化后变差 4.6%”只说明这个候选存在明显 relaxation gap。它不能直接代表原始 binary optimum 与 relaxed optimum 的精确差距。</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="reflection">
+      <div class="section-head">
+        <h2>可能不是继续迭代就会变好</h2>
+        <span class="section-tag">RESET THE QUESTION</span>
+      </div>
+      <p>如果只沿着版本 1 → 2 → 3 的路线继续加诊断、加段数、加 thinking budget，可能会得到更长的搜索，却不一定得到更可靠的科学结论。现在至少有三个更根本的风险。</p>
+      <div class="finding">
+        <span class="num">01</span>
+        <div><h3>我们优化的对象可能一开始就不是原始问题</h3><p>legacy-grid 的低分同时享受了有限网格和分数值两层自由。A 类 exact evaluator 解决了“如何精确评估返回函数”，却没有解决“返回函数离二值集合有多远”。如果不把二值化和 grid refinement 变成每个候选的标准测量，搜索 score 越高，解释风险可能越大。</p></div>
+      </div>
+      <div class="finding">
+        <span class="num">02</span>
+        <div><h3>LLM 可能不适合直接承担非光滑数值优化</h3><p>模型可以提出结构和实验，但当前结果显示它会把一个很好的 warm start 交给一个不稳定的内嵌优化器。C5 是多个 shift 的最大值，局部方向会在 active shift 切换时改变；让语言模型自己写长时间数值优化循环，既浪费评测预算，也很难保证不破坏 incumbent。</p></div>
+      </div>
+      <div class="finding">
+        <span class="num">03</span>
+        <div><h3>“搜索更多”不是“证据更多”</h3><p>三轮都没有超过论文解，这个事实本身不能说明论文解接近全局最优，也不能说明框架搜索能力不足。我们需要拆开两个问题：一是给定候选的可靠性和 relaxation gap；二是算法是否能在同一表示下稳定改善一个已知好解。</p></div>
+      </div>
+      <div class="verdict">
+        <div><h3>本周结论</h3><p>版本 3 的还没产出更低（好）的 c5，但发现了可测的“分数值到二值”的差距，并证明模型可以产生一些可靠性验证（加密格点验证等）。下一轮的第一目标应从“让模型继续搜”改成“让每个候选都留下可比较、可复核的证据”。</p></div>
+        <!-- <div><h3>不应直接宣称</h3><p>不能把 <span class="mono">0.3808677</span> 当作原始二值问题的 ground truth，也不能把一次 <span class="mono">+4.6%</span> 二值化实验当作全局 relaxation gap 的定理。</p></div> -->
+      </div>
+    </section>
+
+    <section id="next">
+      <div class="section-head">
+        <h2>计划</h2>
+        <span class="section-tag">NEXT EXPERIMENTS</span>
+      </div>
+      <div class="two-col">
+        <div class="panel">
+          <h3>把二值化后的解变化量放进evaluator中一起考虑</h3>
+          <p>① 对同一个候选跑多个网格分辨率，记录 <span class="mono">N</span> 变化后的 c5。</p>
+          <p>②执行二值化（模拟退火只是一种，可能存在更好的 0/1 化路线）并记录二值化后的 c5 和变化量</p>
+          <p>最后把所有候选结果的 score / refinement / binaraization 一起记录并评估。让生成器考虑这样一个目标“生成的解在不同松弛下保持稳定，避免是一个仅仅在好优化的空间中好的解，而非真实空间好的解”</p>
+        </div>
+        <div class="panel">
+          <h3>少让LLM直接做优化器的改动</h3>
+          <p>结果有这样的趋势：LLM 会在 warm start 的解的基础上对优化器胡乱改动，那么只让 LLM 对优化器做小扰动和结构假设，确定性代码负责 line search、质量保持和 incumbent 保护。</p>
+          <!-- <ol>
+            <li>把 warm start 原样返回作为每一代的保护性 baseline。</li>
+            <li>LLM 只提出小扰动或结构假设，确定性代码负责 line search、质量保持和 incumbent 保护。</li>
+            <li>同一候选同时输出 relaxed 版本和 binaryized 版本，避免只优化其中一个。</li>
+            <li>把 A 类 exact 和 legacy-grid 放进同一组对照，避免不同表示下的分数直接比较。</li>
+          </ol> -->
+          <!-- <p class="muted">如果这种混合方法仍不能改善，才更有理由判断搜索方向或表示本身需要重做。</p> -->
+        </div>
+      </div>
+      <!-- <div class="callout signal">
+        <p><strong>一个更激进的备选方向：</strong>暂时停止“LLM 直接进化解”的主线，把 LLM 降级成候选结构和实验设计生成器；数值优化改由可复现的确定性程序完成。这样能区分“模型不会优化”和“这个 relaxation 本来就不值得继续优化”。</p>
+      </div> -->
+    </section>
+  </main>
+
+  <footer class="footer">
+    <span>数据来源：reports/erdos-A-round1-report.md · reports/erdos-A-round2-report.md · reports/erdos-legacy-meta-round3-report.md · proof.md</span>
+    <span>修改时间：19/10/2026</span>
+    <span class="mono">HEAD: origin/erdos-exact-evaluator@732b13b · latest config: origin/erdos-legacy-meta@97fbe6b</span>
+  </footer>
+</div>
