@@ -27,7 +27,8 @@ uv python install 3.12
 uv sync
 # anthropic SDK for --llm-backend anthropic. Installed after sync (not in uv.lock):
 # 0.125.0 is the last 0.x line, which still uses httpx (shared with litellm).
-uv pip install --python .venv/bin/python "anthropic==0.125.0"
+# Only the pypi_proxy mirror carries anthropic (pypi-proxy returns no files for it).
+uv pip install --python .venv/bin/python --index-url http://nexus.sii.shaipower.online/repository/pypi_proxy/simple/ "anthropic==0.125.0"
 
 # --- secrets (never echoed) ---
 # simpletes.env must define ANTHROPIC_API_KEY and ANTHROPIC_BASE_URL; the

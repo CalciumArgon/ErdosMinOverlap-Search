@@ -15,7 +15,7 @@ export SMOKE_DIR=/tmp/smoke_v4
 mkdir -p "$SMOKE_DIR"
 PY=.venv/bin/python
 export UV_DEFAULT_INDEX=http://nexus.sii.shaipower.online/repository/pypi-proxy/simple/
-uv pip install --python $PY "anthropic==0.125.0" >/dev/null || { echo "SMOKE anthropic install FAIL"; exit 1; }
+uv pip install --python $PY --index-url http://nexus.sii.shaipower.online/repository/pypi_proxy/simple/ "anthropic==0.125.0" >/dev/null || { echo "SMOKE anthropic install FAIL"; exit 1; }
 REF=best_results/mathematics_discovery/erdos_minimum_overlap/erdos_minimum_overlap_best_construction.json
 STAGE=${1:-all}
 
