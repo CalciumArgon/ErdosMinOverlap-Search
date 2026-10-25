@@ -163,6 +163,19 @@ def build_parser(*, mode: str = "single") -> argparse.ArgumentParser:
         help="Dispatch k candidates as independent generation jobs (k=1 per job) while preserving local-best batch semantics",
     )
     parser.add_argument(
+        "--explore-chains",
+        type=int,
+        default=EngineConfig.explore_chains,
+        help="Number of explore chains (chain_idx < N): no GLOBAL_BEST_CONSTRUCTION, from-scratch prompt (default: 0)",
+    )
+    parser.add_argument(
+        "--shared-construction-scope",
+        type=str,
+        choices=["chain", "global"],
+        default=EngineConfig.shared_construction_scope,
+        help="chain: each chain gets its own chain-best construction; global: every new global best is pushed to all exploit chains",
+    )
+    parser.add_argument(
         "--include-construction",
         action="store_true",
         help="Enable per-chain shared construction: save and provide GLOBAL_BEST_CONSTRUCTION from each chain's best solution to the LLM prompt (default: disabled)",
@@ -263,9 +276,28 @@ def build_parser(*, mode: str = "single") -> argparse.ArgumentParser:
     parser.add_argument(
         "--llm-backend",
         type=str,
-        choices=["litellm", "vllm_token_forcing"],
+        choices=["litellm", "vllm_token_forcing", "anthropic"],
         default=None,
-        help="LLM backend to use (litellm, vllm_token_forcing). Defaults to litellm.",
+        help="LLM backend to use (litellm, vllm_token_forcing, anthropic). Defaults to litellm.",
+    )
+    parser.add_argument(
+        "--first-chunk-timeout",
+        type=float,
+        default=EngineConfig.first_chunk_timeout,
+        help="(anthropic backend) seconds to wait for the first stream event before classifying the call as api_no_start",
+    )
+    parser.add_argument(
+        "--stall-timeout",
+        type=float,
+        default=EngineConfig.stall_timeout,
+        help="(anthropic backend) max seconds between stream events before classifying the call as api_stalled",
+    )
+    parser.add_argument(
+        "--reflection-effort",
+        type=str,
+        choices=["low", "medium", "high", "xhigh", "max"],
+        default=None,
+        help="(anthropic backend) effort for reflection calls (default: medium)",
     )
     parser.add_argument(
         "--model",
@@ -329,7 +361,7 @@ def build_parser(*, mode: str = "single") -> argparse.ArgumentParser:
     parser.add_argument(
         "--reasoning-effort",
         type=str,
-        choices=["low", "medium", "high"],
+        choices=["low", "medium", "high", "xhigh", "max"],
         default=EngineConfig.reasoning_effort,
         help=f"Reasoning effort level for supported models (default: {EngineConfig.reasoning_effort})",
     )

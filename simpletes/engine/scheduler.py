@@ -104,6 +104,7 @@ class SchedulerMixin:
             failure_patterns,
             policy_context=policy_context,
             shared_construction_summary=shared_ref["summary"] if shared_ref is not None else None,
+            chain_role="explore" if self._is_explore_chain(chain_idx) else "exploit",
         )
         return prompt, inspiration_ids, chain_idx, (
             shared_ref["snapshot_id"] if shared_ref is not None else None

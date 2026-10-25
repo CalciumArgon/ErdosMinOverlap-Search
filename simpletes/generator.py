@@ -99,7 +99,8 @@ def format_inspiration(
             err_summary = summarize_error(str(v), _PROMPT_ERROR_MAX_CHARS)
             metrics_lines.append(f"  {k}: {err_summary}")
         elif isinstance(v, float):
-            metrics_lines.append(f"  {k}: {v:.6f}")
+            # 10 significant digits: improvements that matter here are ~1e-6.
+            metrics_lines.append(f"  {k}: {v:.10g}")
         else:
             metrics_lines.append(f"  {k}: {v}")
 
@@ -245,6 +246,7 @@ class Generator:
         failure_patterns: dict[str, float] | None = None,
         policy_context: str = "",
         shared_construction_summary: str | None = None,
+        chain_role: str | None = None,
     ) -> str:
         """Implements ``ConstructQuery`` of Alg.~\\ref{alg:async_method}:
         combines the task instruction $x$, the inspiration set $S^{(c)}$, and
@@ -286,10 +288,25 @@ class Generator:
 
         # Format shared construction
         shared_construction_text = ""
-        if shared_construction_summary:
+        global_scope = getattr(self._config, "shared_construction_scope", "chain") == "global"
+        if chain_role == "explore":
+            shared_construction_text = (
+                "\nChain role: EXPLORATION.\n"
+                "- In this chain no warm start is provided: `GLOBAL_BEST_CONSTRUCTION` is None "
+                "when your program is evaluated.\n"
+                "- The goal is to build and optimize a new structure from scratch with a real "
+                "numerical search, not to reproduce a known construction.\n"
+                "- The root program's score was obtained with a warm start, so a from-scratch "
+                "program may score below it at first; scores are still compared on the same scale.\n"
+            )
+        elif shared_construction_summary:
+            source = (
+                "the current global-best solution (found by any chain)" if global_scope
+                else "the current chain-best solution"
+            )
             shared_construction_text = (
                 "\nShared runtime variable available in the evaluated program:\n"
-                "- `GLOBAL_BEST_CONSTRUCTION` contains the validated construction from the current chain-best solution.\n"
+                f"- `GLOBAL_BEST_CONSTRUCTION` contains the validated construction from {source}.\n"
                 f"- Summary: {shared_construction_summary}\n"
                 "- You may use it as a warm start / initialization / seed if helpful.\n"
                 "- Treat it as optional: handle `None`, incompatible shapes, and task-specific adaptation safely.\n"

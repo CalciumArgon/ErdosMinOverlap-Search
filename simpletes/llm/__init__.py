@@ -6,6 +6,8 @@ generator's point of view:
 
 - ``LLMClient`` — LiteLLM-based, any of LiteLLM's 100+ providers, goes
   through a process pool for true parallelism.
+- ``AnthropicStreamClient`` — Anthropic Messages API, streaming, with
+  API-health classification (``simpletes.llm.health``).
 - ``VLLMTokenForcingClient`` — direct httpx to a vLLM server with
   two-phase GPT-OSS Harmony token forcing (reasoning budget control).
 
@@ -55,6 +57,19 @@ def create_llm_client(config: EngineConfig) -> LLMBackend:
             reasoning_budget=config.reasoning_budget,
             response_budget=config.response_budget,
             pool_size=config.gen_concurrency,
+        )
+    if config.llm_backend == "anthropic":
+        from simpletes.llm.anthropic_client import AnthropicStreamClient
+
+        return AnthropicStreamClient(
+            model=config.model,
+            max_tokens=config.max_tokens,
+            api_key=config.api_key,
+            api_base=config.api_base,
+            timeout=config.timeout,
+            effort=config.reasoning_effort,
+            first_event_timeout=config.first_chunk_timeout,
+            stall_timeout=config.stall_timeout,
         )
     return LLMClient(
         model=config.model,

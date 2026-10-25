@@ -228,3 +228,20 @@ proof.md 本身不改，只在开头加一行指向 problem_formulation.md。
   - 正式 run 中 API 类错误被及时发现；
   - 理想结果：出现 gap_to_reference_e6 < 0 的候选，certify 后仍成立。
   - 次一级结果：探索链产出 l1_to_reference 大且 c5 有竞争力的新结构，作为下一版利用链的种子。
+
+## 实现说明（与计划的差异）
+
+- 模型换成 `claude-opus-5-5`（Anthropic Messages API，网关 `https://zl.yyapi.cloud`），effort=xhigh，adaptive thinking，`display: summarized`。
+- 流式与分类没有改 litellm_client.py，而是新增 `simpletes/llm/anthropic_client.py`（`--llm-backend anthropic`）和 `simpletes/llm/health.py`。原因：Claude 不接受 temperature，必须显式设置 `output_config.effort`，并依靠 thinking delta 判断存活。litellm 后端保持不变。
+- 分类：除计划中的 6 类外，新增 `refusal`。只有 `api_no_start` / `api_stalled` 算 API 类：同一 task 按 30/60/120/240/480 s 退避重试，不消耗预算；5 次后放弃并退还预算。
+  - 连续 3 次 API 类错误：暂停生成，写 `<instance>/API_ALERT`，每 60 s 探测一次。
+  - 恢复后，告警移入 `API_ALERT.resolved`。
+  - 30 min 内未恢复则 exit 3；启动 preflight 失败则 exit 2。
+- 存活探针兜底暂不实现：thinking delta 本身就是存活信号。若 smoke 的 `shorttime` 没有判成 `timeout_mid_generation`，再补。
+- reflection 也走 anthropic 流式，effort 由 `--reflection-effort` 设置（默认 medium），max_tokens 16000，`SIMPLETES_REFLECTION_TIMEOUT`。
+- anthropic SDK 不进 uv.lock：本地 re-lock 会连带重解 vllm 等 optional extras，改动 4700 行。改为在 run/smoke 脚本中 `uv sync` 之后 `uv pip install anthropic==0.125.0`。0.x 的最后一版仍基于 httpx，与 litellm 共用。
+- 新脚本：
+  - `scripts/smoke_v4.sh {a|b|c|deep}`，配合 `scripts/smoke_v4_api.py`；
+  - `scripts/run_erdos_v4.sh`，支持 `RESUME` / `GEN_TIMEOUT` 等环境变量覆盖；
+  - `scripts/certify_erdos_grid.py`：Kronecker 大整数乘法做精确相关，`--direct` 用 O(N²) 交叉校验。
+- 密钥只存放在 qz 的 `.secrets/simpletes.env`（`ANTHROPIC_API_KEY`、`ANTHROPIC_BASE_URL`），由 SDK 从环境变量读取，不出现在 argv 和日志里。

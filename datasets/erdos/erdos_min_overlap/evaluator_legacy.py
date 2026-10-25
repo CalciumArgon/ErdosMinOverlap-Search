@@ -17,7 +17,12 @@ the original task.py + verifier.py design from raw_erdos.
 
 import numpy as np
 
-from simpletes.construction import capture_construction_if_requested
+from simpletes.construction import (
+    SHARED_CONSTRUCTION_ENV,
+    capture_construction_if_requested,
+    decode_construction,
+)
+import json
 import time
 import os
 import signal
@@ -44,7 +49,14 @@ def _env_float(key, default):
 
 CONCURRENT_PROCESSES = _env_int("EVALUATOR_CONCURRENT_PROCESSES", 64)
 OS_BUFFER_PERCENT = _env_float("EVALUATOR_OS_BUFFER_PERCENT", 0.10)
-TIMEOUT_SECONDS = _env_int("EVALUATOR_TIMEOUT_SECONDS", 1100)
+TIMEOUT_SECONDS = _env_int("EVALUATOR_TIMEOUT_SECONDS", 3000)
+
+# Diagnostics (v4). Reference = the warm-start construction the run started from.
+#   ERDOS_REFERENCE_C5    float, score of the reference (gap_to_reference_e6)
+#   ERDOS_REFERENCE_PATH  JSON construction payload (h, c5, n) or .npy array of h
+REFERENCE_C5 = os.environ.get("ERDOS_REFERENCE_C5")
+REFERENCE_PATH = os.environ.get("ERDOS_REFERENCE_PATH")
+ACTIVE_SHIFT_TOL = 1e-9
 
 
 # ============================================================================
@@ -130,7 +142,7 @@ def verify_c5_solution(h_values: np.ndarray, c5_achieved: float, n_points: int):
     if not np.isclose(computed_c5, c5_achieved, atol=1e-8):
         raise ValueError(f"C5 mismatch: reported {c5_achieved:.8f}, computed {computed_c5:.8f}")
 
-    return computed_c5
+    return computed_c5, h_values, correlation
 
 
 def evaluate_erdos_solution(h_values: np.ndarray, c5_bound: float, n_points: int) -> float:
@@ -147,6 +159,89 @@ def evaluate_erdos_solution(h_values: np.ndarray, c5_bound: float, n_points: int
     """
     verify_c5_solution(h_values, c5_bound, n_points)
     return float(c5_bound)
+
+
+# ============================================================================
+# DIAGNOSTICS (descriptive only; never affect validity or score)
+# ============================================================================
+
+_REFERENCE_CACHE = {}
+
+
+def _load_reference_h():
+    """Reference step heights from ERDOS_REFERENCE_PATH, or None."""
+    if not REFERENCE_PATH or not os.path.exists(REFERENCE_PATH):
+        return None
+    if REFERENCE_PATH in _REFERENCE_CACHE:
+        return _REFERENCE_CACHE[REFERENCE_PATH]
+    ref = None
+    try:
+        if REFERENCE_PATH.endswith(".npy"):
+            ref = np.load(REFERENCE_PATH)
+        else:
+            with open(REFERENCE_PATH, encoding="utf-8") as f:
+                val = decode_construction(json.load(f))
+            ref = val[0] if isinstance(val, (tuple, list)) and len(val) == 3 else val
+        ref = np.asarray(ref, dtype=np.float64).reshape(-1)
+        if ref.size == 0 or not np.all(np.isfinite(ref)):
+            ref = None
+    except Exception:
+        ref = None
+    _REFERENCE_CACHE[REFERENCE_PATH] = ref
+    return ref
+
+
+def step_l1_distance(a, b):
+    """Exact L1 distance on [0, 2] between two uniform-grid step functions.
+
+    a has len(a) cells of width 2/len(a), b has len(b) cells of width 2/len(b).
+    Integrated piecewise over the union of both breakpoint sets, on which both
+    functions are constant.
+    """
+    na, nb = len(a), len(b)
+    # Breakpoints in units of 1/(na*nb) of [0, 1]: a's are multiples of nb,
+    # b's are multiples of na, so the union is exact in integers.
+    pts = np.union1d(np.arange(na + 1, dtype=np.int64) * nb, np.arange(nb + 1, dtype=np.int64) * na)
+    left, right = pts[:-1], pts[1:]
+    ia = np.minimum(left // nb, na - 1)
+    ib = np.minimum(left // na, nb - 1)
+    widths = (right - left).astype(np.float64) * (2.0 / (na * nb))
+    return float(np.sum(np.abs(a[ia] - b[ib]) * widths))
+
+
+def orbit_l1_to_reference(h, ref):
+    """min L1 distance from h to the symmetry orbit of ref.
+
+    C is invariant under reflection f(2-x) and complement 1-f (both keep
+    the integral equal to 1), so all four images of ref are equivalent.
+    """
+    images = (ref, ref[::-1], 1.0 - ref, 1.0 - ref[::-1])
+    return min(step_l1_distance(h, g) for g in images)
+
+
+def diagnostic_metrics(h_scored, correlation, c5_value):
+    """Search-dynamics diagnostics reported alongside the score."""
+    max_corr = float(np.max(correlation))
+    out = {
+        "c5_str": f"{c5_value:.10f}",
+        "n_points": int(h_scored.shape[0]),
+        "n_active_shifts": int(np.sum(correlation >= max_corr - ACTIVE_SHIFT_TOL)),
+        "used_warm_start": bool(
+            os.environ.get(SHARED_CONSTRUCTION_ENV)
+            and os.path.exists(os.environ[SHARED_CONSTRUCTION_ENV])
+        ),
+    }
+    if REFERENCE_C5:
+        try:
+            out["gap_to_reference_e6"] = round((c5_value - float(REFERENCE_C5)) * 1e6, 4)
+        except ValueError:
+            pass
+    ref = _load_reference_h()
+    if ref is not None:
+        l1 = orbit_l1_to_reference(h_scored, ref)
+        out["l1_to_reference"] = float(f"{l1:.6g}")
+        out["returned_reference_unchanged"] = bool(l1 < 1e-12)
+    return out
 
 
 # ============================================================================
@@ -347,7 +442,8 @@ def evaluate(program_path):
         
         # Use the original evaluation logic from verifier.py
         try:
-            c5_value = evaluate_erdos_solution(h_values, c5_bound, n_points)
+            c5_value, h_scored, correlation = verify_c5_solution(h_values, c5_bound, n_points)
+            c5_value = float(c5_bound)
         except ValueError as e:
             print(f"Validation failed: {e}")
             return {
@@ -365,12 +461,17 @@ def evaluate(program_path):
         
         print(f"Evaluation: valid=True, c5={c5_value:.10f}, score={combined_score:.10f}, time={eval_time:.2f}s")
         
-        return {
+        result = {
             "c5": float(c5_value),
             "validity": 1.0,
             "eval_time": float(eval_time),
             "combined_score": float(combined_score),
         }
+        try:
+            result.update(diagnostic_metrics(h_scored, correlation, c5_value))
+        except Exception as e:  # diagnostics must never invalidate a candidate
+            result["diagnostics_error"] = f"{type(e).__name__}: {e}"
+        return result
     
     except MemoryLimitExceededError as e:
         print(f"Evaluation failed due to memory limit: {e}")

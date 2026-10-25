@@ -214,6 +214,10 @@ class TrajectoryPolicyBase(Selector):
         llm_policy_model: str | None = None,
         llm_policy_api_base: str | None = None,
         llm_policy_api_key: str | None = None,
+        # Backend for reflection calls ("anthropic" streams through
+        # AnthropicStreamClient; anything else uses litellm)
+        llm_backend: str = "litellm",
+        reflection_effort: str | None = None,
         # Task instruction for context
         task_instruction: str | None = None,
         **kwargs,  # Accept and ignore unknown params from subclasses
@@ -230,6 +234,9 @@ class TrajectoryPolicyBase(Selector):
         self.llm_policy_model = llm_policy_model
         self.llm_policy_api_base = llm_policy_api_base
         self.llm_policy_api_key = llm_policy_api_key
+        self.llm_backend = llm_backend or "litellm"
+        self.reflection_effort = reflection_effort or "medium"
+        self._anthropic_reflector = None
         self.task_instruction = task_instruction
 
         self.chain_gen_budget = compute_chain_budgets(self.max_generations, self.num_chains)
@@ -445,6 +452,9 @@ class TrajectoryPolicyBase(Selector):
             code=node.code,
             metrics=metrics_to_text(node.metrics),
         )
+        if self.llm_backend == "anthropic":
+            return await self._reflect_anthropic(prompt)
+
         # The reflection output is a two-line Approach/Insight summary, so it does
         # NOT need the deep thinking budget that generation uses. Reusing the
         # generation budget here would put a ~45-90 min call on the critical path
@@ -490,6 +500,40 @@ class TrajectoryPolicyBase(Selector):
         except Exception:
             return ""
         text = extract_approach_insight(text)
+        if len(text) > _MAX_REFLECTION_OUTPUT_CHARS:
+            text = text[:_MAX_REFLECTION_OUTPUT_CHARS].rstrip()
+        return text
+
+    async def _reflect_anthropic(self, prompt: str) -> str:
+        """Reflection through the streaming Claude client (no sampling params).
+
+        Uses its own effort level (``--reflection-effort``, default medium) and a
+        bounded max_tokens / timeout, so the two-line summary never inherits the
+        deep generation budget. Failures are classified and recorded in
+        api_health.jsonl like generation calls, and return "".
+        """
+        try:
+            refl_timeout = float(os.environ.get("SIMPLETES_REFLECTION_TIMEOUT", "1200"))
+        except (TypeError, ValueError):
+            refl_timeout = 1200.0
+        try:
+            if self._anthropic_reflector is None:
+                from simpletes.llm.anthropic_client import AnthropicStreamClient
+                self._anthropic_reflector = AnthropicStreamClient(
+                    model=self.llm_policy_model,
+                    max_tokens=16000,
+                    api_key=self.llm_policy_api_key,
+                    api_base=self.llm_policy_api_base,
+                    timeout=refl_timeout,
+                    effort=self.reflection_effort,
+                )
+            text, _raw, _usage, _h = await self._anthropic_reflector.stream_text(
+                prompt, kind="reflection", max_tokens=16000,
+                effort=self.reflection_effort, timeout=refl_timeout,
+            )
+        except Exception:
+            return ""
+        text = extract_approach_insight((text or "").strip())
         if len(text) > _MAX_REFLECTION_OUTPUT_CHARS:
             text = text[:_MAX_REFLECTION_OUTPUT_CHARS].rstrip()
         return text

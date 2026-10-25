@@ -23,24 +23,45 @@ Feasibility is checked exactly, do not rely on tolerance:
 - A constant h_values (no variation at all) is rejected as degenerate: the flat
   profile is the trivial maximizer of the overlap, not a candidate solution.
 
-Cost note: the correlation is O(n_points^2) work in float64 and your program runs
-under a 1100-second evaluation budget that also has to cover everything your
-run_code() does (construction, local search, any self-checks you add). Larger
-n_points buys resolution; it does not by itself buy a better or more trustworthy
-score.
+## What the score means
 
-## One thing worth keeping in mind
+The score is exact for the step function you return: the formula above equals
+C_5 of that step function (the maximum over shifts is attained at grid shifts).
+By a theorem of Swinnerton-Dyer, the Erdős constant equals the infimum of C_5
+over [0, 1]-valued step functions with ∫h = 1, so EVERY valid array you return
+is a rigorous upper bound on the original constant. Fractional values are not a
+relaxation gap; nothing has to be rounded to 0/1 afterwards.
 
-The grid function you return is a relaxation of the original problem: it allows
-fractional values in [0, 1] and a finite grid, where the original combinatorial
-object is a subset A of [0, 2] with |A| = 1 (h = 1_A) on a continuum. Your score
-is exact for the function you return, so a lower score is a valid bound on the
-relaxed optimum — but it is not automatically a bound on the original problem,
-and no value of n_points alone makes it one. How much weight to give that
-distinction, and what to do about it, is your call.
+Consequences:
+- Refining the grid by np.repeat(h, r) (n_points -> r * n_points) leaves the
+  score exactly unchanged. Resampling/interpolating to a different grid changes
+  the function and therefore the score.
+- A finer grid can only make better values reachable; it does not change the
+  meaning of the score.
+- The reference construction this run starts from has C_5 = 0.38086768 (best
+  known bounds are around 0.3808-0.3809). Improvements that matter are of order
+  1e-6 and below, so compare candidates by their exact value.
 
-The time limit for each program evaluation is 1100 seconds.
+## Budget
+
+Each program evaluation may run for up to 3000 seconds, and that time covers
+everything run_code() does. The correlation is O(n_points^2) per evaluation in
+float64. Use the budget for a genuine numerical search over h; a program that
+returns quickly with a lightly perturbed input is unlikely to improve anything.
+
+## Shared construction
 
 GLOBAL_BEST_CONSTRUCTION may be provided as a validated (h_values, c5_bound,
-n_points) tuple from the current chain-best solution. You may use it as a warm
-start, transform it, or ignore it; handle None and mismatched shapes safely.
+n_points) tuple taken from the current best solution. It is NOT provided in
+exploration chains (there it is None). You may use it as a warm start,
+transform it, or ignore it; always handle None and mismatched shapes safely.
+
+## Reported diagnostics
+
+Besides c5 and combined_score, valid candidates report: c5_str (c5 to 10
+decimals), gap_to_reference_e6 ((c5 - 0.38086768) * 1e6, negative = better than
+the reference), used_warm_start, l1_to_reference (exact L1 distance on [0, 2]
+to the reference construction, minimized over its reflection/complement
+symmetries; small = a local modification, large = a different function),
+returned_reference_unchanged, n_active_shifts (number of shifts within 1e-9 of
+the maximum), n_points, and eval_time.

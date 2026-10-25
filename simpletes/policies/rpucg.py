@@ -29,18 +29,18 @@ if TYPE_CHECKING:
 # REFLECTION_PROMPT_TEMPLATE from simpletes.templates.reflection; rpucg overrides
 # it via REFLECTION_TEMPLATE.
 #
-# The Insight line asks for evaluation-level judgment rather than free-form
-# lessons: whether the measured score is trustworthy evidence about the task's
-# underlying objective, or plausibly an artifact of how the harness approximates
-# that objective (discretization, relaxation, surrogate metrics, self-reported
-# numbers, budget-dependent search inside the candidate). This is the only
-# cross-generation memory channel, so evaluation reasoning recorded here is what
-# later generations can build on.
+# The Insight line diagnoses SEARCH DYNAMICS rather than evaluation validity
+# (v4: the evaluation is exact for the returned step function, so "is the score
+# an artifact" is no longer the open question). It asks, from the metrics the
+# evaluator reports, whether the candidate actually searched or just returned /
+# nudged the warm start, how far it is from the reference in score and in
+# function space, where its time went, and what component to change next. It
+# must still never describe what a good answer looks like. This is the only
+# cross-generation memory channel.
 #
-# The response must still begin with the literal token 'Approach:' —
+# The response must still begin with the literal token 'Approach:' -
 # extract_approach_insight() in simpletes/utils/text.py discards anything else.
-RPUCG_REFLECTION_PROMPT_TEMPLATE = """\
-Instruction for an LLM:
+RPUCG_REFLECTION_PROMPT_TEMPLATE = """Instruction for an LLM:
 {llm_input}
 
 The LLM generated solution:
@@ -51,8 +51,8 @@ New solution metrics:
 Your task is to write reflections for this solution.
 Write a **concise plain-text summary with exactly two lines** (one line each, no
 line breaks inside a line):
-Approach: <what the solution actually did, stated factually>
-Insight: <judgment about the EVIDENCE, never about the shape of a good answer. Does this score look like trustworthy information about the task's underlying objective, or could it be an artifact of how that objective is approximated here (grid resolution, relaxed variable domains, surrogate or self-reported numbers, search effort spent inside the time budget)? State what should be measured or varied next to tell those apart. Do not say what the solution ought to look like.>
+Approach: <what the solution actually did, stated factually: how it initialized, which optimization components it ran, and how it used its time budget>
+Insight: <a diagnosis of the SEARCH, grounded in the metrics, never a description of what a good answer looks like. Cover: did it start from the warm start (used_warm_start) and did it end up genuinely different from the reference (l1_to_reference: tiny means a local tweak, large means a new structure) or unchanged; how far it is from the reference (gap_to_reference_e6, negative means better); how much of the eval budget it used (eval_time); which component is the bottleneck (initialization, the local optimizer, the handling of the max over shifts n_active_shifts, the mass constraint, resolution n_points, or time); and the single most promising change to the search procedure next.>
 Your response can only have these two lines. The response must starts with 'Approach:'
 """
 

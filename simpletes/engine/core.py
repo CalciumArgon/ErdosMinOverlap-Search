@@ -14,6 +14,15 @@ from __future__ import annotations
 _QUEUE_SIZE_MULTIPLIER = 8
 _MIN_QUEUE_SIZE = 4096
 _INITIAL_SHARED_CONSTRUCTION_ENV = "SIMPLETES_INITIAL_SHARED_CONSTRUCTION_PATH"
+# API-health guard: after this many consecutive API-class failures
+# (api_no_start / api_stalled) generation pauses and an API_ALERT is raised;
+# if a probe does not succeed within _API_ALERT_FATAL_SEC the run stops with
+# a non-zero exit code.
+_API_ALERT_CONSECUTIVE = 3
+_API_ALERT_FATAL_SEC = 1800.0
+_API_PROBE_INTERVAL_SEC = 60.0
+_API_RETRY_BACKOFF_SEC = (30.0, 60.0, 120.0, 240.0, 480.0)
+_API_MAX_RETRIES_PER_TASK = 5
 
 from datetime import datetime
 import asyncio
@@ -51,6 +60,7 @@ from simpletes.node import (
 )
 from simpletes.generator import Generator, GenerationTask
 from simpletes.llm import LLMCallError
+from simpletes.llm import health as llm_health
 from simpletes.policies import Selector, create_selector
 from simpletes.construction import summarize_construction_payload, write_payload
 from simpletes.utils.task_prep import load_task_requirements
@@ -126,6 +136,8 @@ class SimpleTESEngine(SchedulerMixin):
             llm_policy_model=config.llm_policy_model if config.llm_policy_model is not None else config.model,
             llm_policy_api_base=config.llm_policy_api_base if config.llm_policy_api_base is not None else config.api_base,
             llm_policy_api_key=config.llm_policy_api_key if config.llm_policy_api_key is not None else config.api_key,
+            llm_backend=config.llm_backend,
+            reflection_effort=config.reflection_effort,
             llm_policy_pool_size=config.llm_policy_pool_size,
             elite_selection_strategy=config.elite_selection_strategy,
             task_instruction=self.instruction,
@@ -220,6 +232,13 @@ class SimpleTESEngine(SchedulerMixin):
 
         # Install tee logger: duplicate all stdout to run.log in checkpoint dir
         self._tee = install_tee_logger(os.path.join(self.checkpoint_dir, "run.log"))
+
+        # API health: one JSONL row per LLM call, plus alert / pause state.
+        self._health = llm_health.install_recorder(os.path.join(self.checkpoint_dir, "api_health.jsonl"))
+        self._api_gate = asyncio.Event()
+        self._api_gate.set()
+        self._api_alert_task: asyncio.Task | None = None
+        self.api_fatal = False
 
         init_info = self.runtime.decorate_init_info(self._build_init_info())
         rich_print(Panel(init_info, border_style="cyan", title="[bold]Initialization[/bold]"))
@@ -407,12 +426,18 @@ class SimpleTESEngine(SchedulerMixin):
         self._static_prompt = None
         self._static_shared_construction_id = None
 
+    def _is_explore_chain(self, chain_idx: int | None) -> bool:
+        return chain_idx is not None and chain_idx < self.config.explore_chains
+
     def _set_shared_construction_for_all_chains_locked(
         self,
         snapshot_id: str,
         payload: Any,
     ) -> None:
+        """Set the construction on every exploit chain (explore chains never get one)."""
         for chain_idx in self._chain_shared_constructions:
+            if self._is_explore_chain(chain_idx):
+                continue
             self._set_shared_construction_for_chain_locked(chain_idx, snapshot_id, payload)
 
     def _clear_shared_construction_for_chain_locked(self, chain_idx: int) -> None:
@@ -616,7 +641,7 @@ class SimpleTESEngine(SchedulerMixin):
             self._gen_inflight += 1
 
         try:
-            results = await self.generator.generate(task, self.instance_id, track_io)
+            results = await self._generate_with_api_retry(task, track_io)
         except asyncio.CancelledError:
             cancelled = True
             rich_print(self._log("⚠", "[yellow]Generation cancelled[/yellow]"))
@@ -631,6 +656,14 @@ class SimpleTESEngine(SchedulerMixin):
             rich_print(f"   [dim]Message:  [/dim]{e.message}")
             async with self._counter_lock:
                 self.generation_failures += 1
+                self._failure_records.append({
+                    "type": "llm_call",
+                    "reason": f"{getattr(e, 'health_class', 'llm_error')}: {e.error_type}",
+                    "health": getattr(e, "health", None),
+                    "gen_id": task.gen_id,
+                    "chain_idx": task.chain_idx,
+                    "created_at": datetime.utcnow().isoformat(),
+                })
             results = []
         except Exception as e:
             rich_print(self._log("⚠", f"[red]Generation failed: {type(e).__name__}: {str(e)}[/red]"))
@@ -667,6 +700,98 @@ class SimpleTESEngine(SchedulerMixin):
 
         if cancelled:
             raise asyncio.CancelledError()
+
+    # ---------- API health guard ----------
+
+    async def _generate_with_api_retry(self, task: GenerationTask, track_io: bool):
+        """Call the generator; retry API-class failures without spending budget.
+
+        API-class failures (api_no_start / api_stalled) mean the request never
+        produced a usable generation for reasons outside the model, so the same
+        task is retried with backoff and the budget already reserved for it is
+        not consumed twice. After _API_MAX_RETRIES_PER_TASK the reserved budget
+        is refunded and the error propagates. Non-API classes (timeout while
+        still generating, truncated, empty) propagate immediately and count.
+        """
+        attempt = 0
+        while True:
+            await self._wait_api_gate()
+            try:
+                return await self.generator.generate(task, self.instance_id, track_io)
+            except LLMCallError as e:
+                cls = getattr(e, "health_class", None)
+                if cls not in llm_health.API_CLASSES:
+                    raise
+                self._maybe_raise_api_alert()
+                if attempt >= _API_MAX_RETRIES_PER_TASK or self._stop_event.is_set():
+                    async with self._counter_lock:
+                        self.generation_attempts -= task.k
+                    rich_print(self._log("⚠", f"[red]{cls}: giving up after {attempt} retries; budget refunded[/red]"))
+                    raise
+                delay = _API_RETRY_BACKOFF_SEC[min(attempt, len(_API_RETRY_BACKOFF_SEC) - 1)]
+                attempt += 1
+                rich_print(self._log("⚠", f"[red]{cls} ({e.error_type}); retry {attempt}/{_API_MAX_RETRIES_PER_TASK} in {delay:.0f}s (budget not consumed)[/red]"))
+                try:
+                    await asyncio.wait_for(self._stop_event.wait(), timeout=delay)
+                except asyncio.TimeoutError:
+                    pass
+
+    async def _wait_api_gate(self) -> None:
+        while not self._api_gate.is_set() and not self._stop_event.is_set():
+            try:
+                await asyncio.wait_for(self._api_gate.wait(), timeout=10)
+            except asyncio.TimeoutError:
+                pass
+
+    def _maybe_raise_api_alert(self) -> None:
+        if self._health.consecutive_api_errors < _API_ALERT_CONSECUTIVE:
+            return
+        if self._api_alert_task is not None and not self._api_alert_task.done():
+            return
+        self._api_gate.clear()
+        msg = (f"API_ALERT: {self._health.consecutive_api_errors} consecutive API-class failures; "
+               f"generation paused, probing every {_API_PROBE_INTERVAL_SEC:.0f}s, "
+               f"run aborts if not recovered within {_API_ALERT_FATAL_SEC:.0f}s")
+        print(f"[API-HEALTH] {msg}", flush=True)
+        rich_print(self._log("🚨", f"[bold red]{msg}[/bold red]"))
+        try:  # marker file for external monitoring; removed on recovery
+            with open(os.path.join(self.checkpoint_dir, "API_ALERT"), "a", encoding="utf-8") as f:
+                f.write(f"{datetime.utcnow().isoformat()} {msg}\n")
+        except OSError:
+            pass
+        self._api_alert_task = asyncio.create_task(self._api_alert_loop(), name="api_alert")
+
+    async def _api_alert_loop(self) -> None:
+        llm = getattr(self.generator, "_llm", None)
+        probe = getattr(llm, "probe", None)
+        t0 = asyncio.get_running_loop().time()
+        while not self._stop_event.is_set():
+            if probe is not None:
+                h = await probe(timeout=min(300.0, self.config.first_chunk_timeout))
+                if h.get("class") == "ok":
+                    self._health.consecutive_api_errors = 0
+                    print("[API-HEALTH] API_RECOVERED: probe ok, generation resumed", flush=True)
+                    rich_print(self._log("✓", "[green]API recovered; generation resumed[/green]"))
+                    try:  # keep the history: API_ALERT -> API_ALERT.resolved
+                        alert = os.path.join(self.checkpoint_dir, "API_ALERT")
+                        with open(alert, encoding="utf-8") as src, open(alert + ".resolved", "a", encoding="utf-8") as dst:
+                            dst.write(src.read() + f"{datetime.utcnow().isoformat()} API_RECOVERED\n")
+                        os.remove(alert)
+                    except OSError:
+                        pass
+                    self._api_gate.set()
+                    return
+            if asyncio.get_running_loop().time() - t0 > _API_ALERT_FATAL_SEC:
+                print("[API-HEALTH] API_FATAL: not recovered within the alert window; stopping run", flush=True)
+                rich_print(self._log("🚨", "[bold red]API_FATAL: stopping run (exit code 3)[/bold red]"))
+                self.api_fatal = True
+                self._stop_event.set()
+                self._api_gate.set()
+                return
+            try:
+                await asyncio.wait_for(self._stop_event.wait(), timeout=_API_PROBE_INTERVAL_SEC)
+            except asyncio.TimeoutError:
+                pass
 
     async def _gen_worker(self, wid: int) -> None:
         """Generation worker with clean cancellation."""
@@ -744,11 +869,25 @@ class SimpleTESEngine(SchedulerMixin):
                 self.best_node_id = node.id
                 improved = True
 
-            # Per-chain construction update
+            # Construction update. scope=chain: a chain gets its own chain-best.
+            # scope=global: a new global best from ANY chain (explore chains
+            # included) is pushed to every exploit chain. Explore chains never
+            # receive a construction.
             if self.config.include_construction and node.chain_idx is not None:
                 chain_idx = node.chain_idx
-                if chain_idx in self._chain_best_scores and node.score > self._chain_best_scores[chain_idx]:
+                chain_improved = (
+                    chain_idx in self._chain_best_scores
+                    and node.score > self._chain_best_scores[chain_idx]
+                )
+                if chain_improved:
                     self._chain_best_scores[chain_idx] = node.score
+                if self.config.shared_construction_scope == "global":
+                    if improved and captured_construction_payload is not None:
+                        self._set_shared_construction_for_all_chains_locked(
+                            snapshot_id=node.id, payload=captured_construction_payload,
+                        )
+                        rich_print(self._log("📤", f"[cyan]Global best {node.id[:8]} (chain {chain_idx}) pushed to exploit chains[/cyan]"))
+                elif chain_improved and not self._is_explore_chain(chain_idx):
                     if captured_construction_payload is not None:
                         self._set_shared_construction_for_chain_locked(
                             chain_idx, snapshot_id=node.id, payload=captured_construction_payload,

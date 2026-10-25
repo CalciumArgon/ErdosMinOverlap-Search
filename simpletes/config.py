@@ -143,7 +143,15 @@ class EngineConfig:
     timeout: float | None = 3000
     max_total_tokens: int | None = None  # Total token budget (prompt + completion). If set, caps completion tokens.
     reasoning_effort: str = "medium"  # Reasoning effort level for supported models (low, medium, high)
-    llm_backend: str = "litellm"  # litellm | vllm_token_forcing
+    llm_backend: str = "litellm"  # litellm | vllm_token_forcing | anthropic
+    # anthropic backend: API-health deadlines (seconds). first_chunk_timeout
+    # bounds the wait for the first stream event; stall_timeout bounds the gap
+    # between events. Exceeding either means the API is broken (api_no_start /
+    # api_stalled), as opposed to hitting the total --timeout while events are
+    # still arriving (timeout_mid_generation).
+    first_chunk_timeout: float = 600.0
+    stall_timeout: float = 1200.0
+    reflection_effort: str | None = None  # anthropic backend: effort for reflection calls
 
     # Token forcing (vllm_token_forcing backend)
     reasoning_budget: int | None = 32768  # Phase 1 total budget (prompt + reasoning). None = auto from context_window - response_budget
@@ -170,6 +178,12 @@ class EngineConfig:
     stream_k_candidates: bool = True  # Dispatch k candidates as independent k=1 jobs
     include_failure_patterns: bool = True  # Include failure patterns in the prompt
     debug_prompt_lines: int = 0  # Print first N lines of generator prompt (0 = disabled)
+    # Chain roles: chains [0, explore_chains) never receive GLOBAL_BEST_CONSTRUCTION
+    # and get a from-scratch prompt; the rest are exploit chains.
+    explore_chains: int = 0
+    # "chain": a chain's construction is its own chain-best (original behavior).
+    # "global": every new global best (from any chain) is pushed to all exploit chains.
+    shared_construction_scope: str = "chain"
     include_construction: bool = False  # Enable per-chain shared construction: save and provide GLOBAL_BEST_CONSTRUCTION from each chain's best solution to the LLM prompt
 
     # PUCT policy parameters
@@ -242,6 +256,11 @@ def build_config_from_args(args: Any) -> EngineConfig:
         stream_k_candidates=args.stream_k_candidates,
         debug_prompt_lines=args.debug_prompt_lines,
         include_construction=args.include_construction,
+        explore_chains=args.explore_chains,
+        shared_construction_scope=args.shared_construction_scope,
+        first_chunk_timeout=args.first_chunk_timeout,
+        stall_timeout=args.stall_timeout,
+        reflection_effort=args.reflection_effort,
         puct_c=args.puct_c,
         rpucg_gamma=args.rpucg_gamma,
         llm_policy_model=args.llm_policy_model,

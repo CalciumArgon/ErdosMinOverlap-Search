@@ -90,6 +90,10 @@ def main():
         # Signal handler should have already triggered graceful shutdown,
         # but if asyncio.run() was interrupted before cleanup, ensure checkpoint is saved
         _emergency_save_checkpoint(engine)
+    if getattr(engine, "api_fatal", False):
+        # API stayed broken past the alert window: exit non-zero so the job
+        # shows as failed instead of silently finishing with an empty search.
+        sys.exit(3)
 
 
 def _run_preflight(config) -> None:
@@ -99,12 +103,34 @@ def _run_preflight(config) -> None:
     different bring-up semantics and doesn't suffer the same opaque
     BrokenProcessPool failure mode.
     """
-    if config.llm_backend != "litellm":
-        return
-
     from rich import print as rich_print
 
     from simpletes.llm import LLMCallError, LLMClient
+
+    if config.llm_backend == "anthropic":
+        from simpletes.llm.anthropic_client import AnthropicStreamClient
+
+        try:
+            AnthropicStreamClient(
+                model=config.model,
+                max_tokens=config.max_tokens,
+                api_key=config.api_key,
+                api_base=config.api_base,
+                timeout=config.timeout,
+                effort=config.reasoning_effort,
+            ).preflight(timeout=min(300.0, config.first_chunk_timeout))
+        except LLMCallError as err:
+            rich_print("[bold red]✗ LLM preflight failed (api_no_start)[/bold red]")
+            rich_print(f"  [dim]Model:    [/dim]{err.model}")
+            rich_print(f"  [dim]API base: [/dim]{err.api_base or '(provider default)'}")
+            rich_print(f"  [dim]Error:    [/dim][red]{err.error_type}[/red]")
+            rich_print(f"  [dim]Message:  [/dim]{err.message}")
+            sys.exit(2)
+        rich_print("[green]✓ LLM preflight ok[/green]")
+        return
+
+    if config.llm_backend != "litellm":
+        return
 
     client = LLMClient(
         model=config.model,
