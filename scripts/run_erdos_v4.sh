@@ -4,6 +4,7 @@
 #     chat completions, thinking_budget=$THINKING_BUDGET (default 122880)
 #   BACKEND=anthropic: claude-opus-5-5 (Messages API, streamed, adaptive thinking)
 #   rpucg, 4 chains = 2 explore (no warm start) + 2 exploit (global-best warm start)
+#   k=2 candidates per step, 80 generations -> 40 prompts = 10 sequential steps per chain
 #   API-health classification -> <instance>/api_health.jsonl, [API-HEALTH] log lines
 # Runs inside a CPU HPC job (HPC-可上网区资源-2) or the prep notebook.
 #
@@ -17,7 +18,7 @@
 #              THINKING_BUDGET is set
 #   GEN_TIMEOUT / FIRST_CHUNK_TIMEOUT / STALL_TIMEOUT   seconds (calibrated on qz: qwen effort=max
 #              on the erdos prompt took 2119 s / 84K tokens, first event 1.3 s, max gap 2.9 s)
-#   MAX_GENERATIONS, GEN_CONCURRENCY
+#   MAX_GENERATIONS (default 80), K_CANDIDATES (default 2), GEN_CONCURRENCY (default 8 = 4 chains x k)
 set -x
 cd /inspire/hdd/global_user/260107010002/home/SimpleTES || exit 1
 
@@ -95,15 +96,15 @@ if [ -n "$RESUME" ]; then RESUME_ARGS=(--resume "$RESUME"); fi
   --num-chains 4 \
   --explore-chains 2 \
   --shared-construction-scope global \
-  --k-candidates 4 \
+  --k-candidates "${K_CANDIDATES:-2}" \
   --max-generations "${MAX_GENERATIONS:-80}" \
-  --gen-concurrency "${GEN_CONCURRENCY:-16}" \
+  --gen-concurrency "${GEN_CONCURRENCY:-8}" \
   --eval-concurrency 8 \
   --eval-timeout 3300 \
   --init-eval-repeats 2 \
   --include-construction \
   --save-llm-io \
-  --log-interval 4 \
+  --log-interval 2 \
   --output-path "checkpoints/$RUN_NAME" \
   "${RESUME_ARGS[@]}"
 rc=$?

@@ -273,3 +273,12 @@ proof.md 本身不改，只在开头加一行指向 problem_formulation.md。
   - b：精确复核 0.380867675828；repeat 不变性成立；诊断字段正确；常数解被拒。
   - c：迷你运行 6 次生成（low，120–202 s）、3 次反思全部 ok；resume 正常。
 - 密钥：`OPENAI_API_KEY` 和 `SIMPLELLM_BASE_URL` 只存放在 qz 的 `.secrets/simpletes.env`，不进 git。
+
+## 正式运行配置（2026-10-26，提交前定稿）
+
+- **深度控制**：qwen 用 `thinking_budget=122880`，不用 effort。effort 和 budget 约束的是同一个推理通道；在 `max_tokens` 上限 131072 下，122880 是能用的最深值，给代码留约 8K tokens。
+- **规模**：4 链（2 探索 + 2 利用），k=2，`--max-generations 80`。也就是 40 个 prompt，每条链串行 10 步（backpressure=0：一条链的上一步评测完、反思写完，才生成下一步）。
+  - 从 k=4×5 步改为 k=2×10 步：同样 80 次生成，换成更长的进化链。
+- **并发**：`--gen-concurrency 8`（= 4 链 × k），`--eval-concurrency 8`。
+- **时间估计**：每步约为生成 35–50 分钟 + 评测 ≤ 50 分钟 + 反思几分钟，10 步约 13–17 h，在 24 h 的作业上限内；超时则用 `RESUME` 续跑。
+- **评测**：程序预算保持 3000 s（未改）。
