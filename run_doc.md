@@ -658,6 +658,19 @@ erdos 的真实评测可能长达 18 分钟，用它做冒烟测试极其昂贵�
 | 11 | 用 `--debug-prompt-lines` 看过一次提示词 | 确认没有坑 2 的误导包列表 |
 | 12 | 知道怎么 resume | 记住 instance 目录路径（§10.4） |
 
+### 8.x 在启智 qz 上提交 HPC 作业（已跑通的配方）
+
+```bash
+inspire hpc create -n <name> --workspace CPU资源空间 -p 公共科研项目 \
+  --group HPC-可上网区资源-2 -q 0,40,200 --max-time 24 \
+  -i docker.sii.shaipower.online/infly-dev/slurm-k8s-cluster:20250101841 \
+  -c 'srun bash -lc "cd /inspire/hdd/global_user/260107010002/home/SimpleTES && RUN_NAME=<name> bash scripts/run_erdos_v4.sh > checkpoints/<name>.out 2>&1"'
+```
+
+- **镜像必须用 `slurm-k8s-cluster`。** `sandbox-base:*` 里没有 slurmctld，作业约 30 秒就会 FAILED（`exec: "slurmctld": executable file not found`），程序一行都不会跑。
+- **提交前先 `inspire hpc list`。** 同名作业会共用 `checkpoints/<name>.out`，互相覆盖。监控时看各自 instance 目录下的 `run.log` / `api_health.jsonl`。
+- qz 上的时间戳是 UTC（本地时间 = UTC+8）。
+
 ---
 
 ## 9. 运行预算与时间估算
