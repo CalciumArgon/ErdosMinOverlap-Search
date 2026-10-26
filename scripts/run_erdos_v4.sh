@@ -8,7 +8,9 @@
 # Env overrides:
 #   RUN_NAME   output dir under checkpoints/ (default erdos-v4)
 #   RESUME     checkpoint path to resume from (continues a run past the 24 h job limit)
-#   GEN_TIMEOUT / FIRST_CHUNK_TIMEOUT / STALL_TIMEOUT   seconds (calibrated by smoke_v4.sh)
+#   EFFORT     generation effort (default xhigh); zl.yyapi.cloud cuts every stream at ~640 s
+#   GEN_TIMEOUT / FIRST_CHUNK_TIMEOUT / STALL_TIMEOUT   seconds (calibrated by smoke_v4.sh:
+#              first event <= 11 s, max event gap <= 10 s, gateway stream cut ~640 s)
 #   MAX_GENERATIONS, GEN_CONCURRENCY
 set -x
 cd /inspire/hdd/global_user/260107010002/home/SimpleTES || exit 1
@@ -64,12 +66,12 @@ if [ -n "$RESUME" ]; then RESUME_ARGS=(--resume "$RESUME"); fi
   --llm-backend anthropic \
   --model claude-opus-5-5 \
   --api-base "$ANTHROPIC_BASE_URL" \
-  --reasoning-effort xhigh \
+  --reasoning-effort "${EFFORT:-xhigh}" \
   --reflection-effort medium \
   --max-tokens 128000 \
-  --timeout "${GEN_TIMEOUT:-10800}" \
-  --first-chunk-timeout "${FIRST_CHUNK_TIMEOUT:-600}" \
-  --stall-timeout "${STALL_TIMEOUT:-1200}" \
+  --timeout "${GEN_TIMEOUT:-1800}" \
+  --first-chunk-timeout "${FIRST_CHUNK_TIMEOUT:-300}" \
+  --stall-timeout "${STALL_TIMEOUT:-300}" \
   --selector rpucg \
   --num-chains 4 \
   --explore-chains 2 \
