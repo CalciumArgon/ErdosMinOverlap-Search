@@ -852,7 +852,13 @@ class TrajectoryPolicyBase(Selector):
                 return
 
             self.num_chains = int(state.get("num_chains", self.num_chains))
-            self.max_generations = int(state.get("max_generations", self.max_generations))
+            # The current run's --max-generations (set by __init__) wins over the
+            # checkpointed value: resuming with a larger budget must extend the
+            # per-chain prompt budgets, otherwise the engine waits for prompts
+            # the policy will never issue.
+            configured_max_generations = self.max_generations
+            saved_max_generations = int(state.get("max_generations", self.max_generations))
+            self.max_generations = saved_max_generations
             self.k = int(state.get("k", self.k))
             self.min_inspirations_cnt = state.get("min_inspirations_cnt", self.min_inspirations_cnt)
             self.max_inspirations_cnt = state.get("max_inspirations_cnt", self.max_inspirations_cnt)
@@ -867,6 +873,13 @@ class TrajectoryPolicyBase(Selector):
                 int(k): int(v) for k, v in state.get("prompt_budget", {}).items()
             }
             if not self.prompt_budget:
+                self.prompt_budget = {
+                    i: (budget + self.k - 1) // self.k if budget > 0 else 0
+                    for i, budget in self.chain_gen_budget.items()
+                }
+            if configured_max_generations > saved_max_generations:
+                self.max_generations = configured_max_generations
+                self.chain_gen_budget = compute_chain_budgets(self.max_generations, self.num_chains)
                 self.prompt_budget = {
                     i: (budget + self.k - 1) // self.k if budget > 0 else 0
                     for i, budget in self.chain_gen_budget.items()
