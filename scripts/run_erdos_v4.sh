@@ -1,7 +1,7 @@
 #!/bin/bash
 # v4 formal run: Erdős minimum overlap, legacy dense grid, exact-score semantics.
 #   BACKEND=openai_stream (default): qwen3.8-max @ apicz.boyuerichdata.com, streamed
-#     chat completions, reasoning_effort=$EFFORT (default max, the gateway's top level)
+#     chat completions, thinking_budget=$THINKING_BUDGET (default 122880)
 #   BACKEND=anthropic: claude-opus-5-5 (Messages API, streamed, adaptive thinking)
 #   rpucg, 4 chains = 2 explore (no warm start) + 2 exploit (global-best warm start)
 #   API-health classification -> <instance>/api_health.jsonl, [API-HEALTH] log lines
@@ -11,7 +11,10 @@
 #   RUN_NAME   output dir under checkpoints/ (default erdos-v4)
 #   RESUME     checkpoint path to resume from (continues a run past the 24 h job limit)
 #   BACKEND    openai_stream (default, qwen) | anthropic (claude; zl.yyapi.cloud cuts streams at ~640 s)
-#   EFFORT     generation effort (default max for qwen, high for claude)
+#   THINKING_BUDGET  qwen reasoning-token cap (default 122880 = deepest feasible under
+#              max_tokens 131072); replaces EFFORT for qwen
+#   EFFORT     generation effort for claude (default high); ignored for qwen while
+#              THINKING_BUDGET is set
 #   GEN_TIMEOUT / FIRST_CHUNK_TIMEOUT / STALL_TIMEOUT   seconds (calibrated on qz: qwen effort=max
 #              on the erdos prompt took 2119 s / 84K tokens, first event 1.3 s, max gap 2.9 s)
 #   MAX_GENERATIONS, GEN_CONCURRENCY
@@ -56,7 +59,11 @@ else
     if [ -z "$OPENAI_API_KEY" ] || [ -z "$SIMPLELLM_BASE_URL" ]; then
         echo "missing OPENAI_API_KEY / SIMPLELLM_BASE_URL in simpletes.env"; exit 2
     fi
-    # max_tokens 131072 is the gateway ceiling; reasoning tokens count against it.
+    # max_tokens 131072 is the gateway ceiling; reasoning tokens count against it,
+    # so thinking_budget 122880 is the deepest feasible cap (~8K left for the
+    # program). The gateway rejects reasoning_effort together with thinking_budget;
+    # OpenAIStreamClient drops reasoning_effort when thinking_budget is set.
+    export SIMPLETES_EXTRA_BODY="{\"thinking_budget\": ${THINKING_BUDGET:-122880}}"
     LLM_ARGS=(--llm-backend openai_stream --model qwen3.8-max --api-base "$SIMPLELLM_BASE_URL"
         --reasoning-effort "${EFFORT:-max}" --max-tokens 131072)
 fi
