@@ -725,6 +725,10 @@ class SimpleTESEngine(SchedulerMixin):
                 return await self.generator.generate(task, self.instance_id, track_io)
             except LLMCallError as e:
                 cls = getattr(e, "health_class", None)
+                if cls in llm_health.ALERT_CLASSES and cls not in llm_health.API_CLASSES:
+                    # gateway cut: not retried (it would be cut again), but alerts
+                    self._maybe_raise_api_alert()
+                    raise
                 if cls not in llm_health.API_CLASSES:
                     raise
                 self._maybe_raise_api_alert()

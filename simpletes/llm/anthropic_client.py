@@ -266,7 +266,11 @@ class AnthropicStreamClient:
 
         text = "".join(text_parts)
         thinking = "".join(thinking_parts)
-        cls = health.classify_finish(stop_reason, text)
+        cls = health.classify_finish(
+            stop_reason, text,
+            output_tokens=usage.get("output_tokens"),
+            requested_max_tokens=kwargs.get("max_tokens"),
+        )
         raw_output = (f"<thinking>\n{thinking}\n</thinking>\n" if thinking else "") + text
         usage_out = {k: v for k, v in usage.items() if v is not None} or None
         if cls == "ok":
