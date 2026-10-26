@@ -16,7 +16,8 @@ mkdir -p "$SMOKE_DIR"
 PY=.venv/bin/python
 export UV_DEFAULT_INDEX=http://nexus.sii.shaipower.online/repository/pypi-proxy/simple/
 UV_DEFAULT_INDEX=http://nexus.sii.shaipower.online/repository/pypi_proxy/simple/ uv pip install --python $PY "anthropic==0.125.0" >/dev/null || { echo "SMOKE anthropic install FAIL"; exit 1; }
-REF=best_results/mathematics_discovery/erdos_minimum_overlap/erdos_minimum_overlap_best_construction.json
+# absolute: evaluator subprocesses run with cwd = a temp eval dir
+REF=$PWD/best_results/mathematics_discovery/erdos_minimum_overlap/erdos_minimum_overlap_best_construction.json
 STAGE=${1:-all}
 
 stage_a() {

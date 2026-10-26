@@ -462,6 +462,11 @@ class SimpleTESEngine(SchedulerMixin):
             shared_path = os.path.join(self._shared_construction_dir, f"{shared_construction_id}.json")
         if shared_path is not None and not os.path.exists(shared_path):
             shared_path = None
+        if shared_path is not None:
+            # The eval subprocess runs with cwd=<tmp eval dir>, so a relative
+            # path (e.g. from a relative --output-path) would not resolve there
+            # and GLOBAL_BEST_CONSTRUCTION would silently be None.
+            shared_path = os.path.abspath(shared_path)
         try:
             outcome = await self.worker.evaluate(
                 code,
