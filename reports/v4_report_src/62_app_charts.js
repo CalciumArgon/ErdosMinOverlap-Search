@@ -40,8 +40,11 @@ function buildCharts() {
     label: `链 ${c}（探索）`, backgroundColor: chainColor(c), borderColor: chainColor(c), pointRadius: 4,
     data: valid.filter(n => n.chain === c).map(n => ({ x: hrs(n.created_at), y: (n.metrics.c5 - REF) * 1e4, id: n.id })) }));
   ex2.push({ label: "参照解", type: "line", data: [{ x: 0, y: 0 }, { x: lastH, y: 0 }], borderColor: css("--ref"), borderDash: [5, 4], pointRadius: 0, borderWidth: 1.5 });
-  mk("#chart-explore", { type: "scatter", data: { datasets: ex2 }, options: base("运行时间 (h)", "c5 − c5_ref (×10⁻⁴)", {
-    y: { min: 0, suggestedMax: 30 }, tooltip: { label: ctx => ctx.raw.id ? `${id8(ctx.raw.id)}：+${ctx.raw.y.toFixed(3)} ×10⁻⁴` : "参照解" } }) });
+  // every explore candidate is worse than the reference (y > 0), and one outlier is ~1000x the rest: log axis
+  ex2.pop();
+  mk("#chart-explore", { type: "scatter", data: { datasets: ex2 }, options: base("运行时间 (h)", "c5 − c5_ref (×10⁻⁴，对数)", {
+    y: { type: "logarithmic", ticks: { color: css("--muted"), callback: v => Number.isInteger(Math.log10(v)) ? v : "" } },
+    tooltip: { label: ctx => `${id8(ctx.raw.id)}：+${ctx.raw.y.toFixed(3)} ×10⁻⁴` } }) });
 
   // 3. breakthrough ladder
   const bts = TL.slice(1);
@@ -61,8 +64,8 @@ function buildCharts() {
   // 5. overlap curve A(s): reference vs best (envelope of maxima)
   const cp = p => (p.corr_plot || []).map((y, i) => ({ x: (p.corr_plot_shift || [])[i], y }));
   mk("#chart-corr", { type: "line", data: { datasets: [
-    { label: "参照解", data: cp(refP), borderColor: css("--ref"), pointRadius: 0, borderWidth: 1.2 },
-    { label: "本轮最好", data: cp(bestP), borderColor: css("--accent"), pointRadius: 0, borderWidth: 1.2 },
+    { label: "参照解", data: cp(refP), borderColor: css("--ref"), pointRadius: 0, borderWidth: 3, order: 2 },
+    { label: "本轮最好", data: cp(bestP), borderColor: css("--accent"), pointRadius: 0, borderWidth: 1.2, order: 1 },
     { label: "最好解的 C(h)", data: [{ x: -2, y: bestP.c5_float }, { x: 2, y: bestP.c5_float }], borderColor: css("--bad"), borderDash: [4, 4], pointRadius: 0, borderWidth: 1 } ] },
     options: base("平移 s", "A_h(s)", { x: { min: -2, max: 2 } }) });
 
@@ -74,8 +77,8 @@ function buildCharts() {
 
   // 7. the best h(x) itself
   mk("#chart-h", { type: "line", data: { datasets: [
-    { label: "参照解", data: xs(refP.h_plot || []), borderColor: css("--ref"), pointRadius: 0, borderWidth: 2.5 },
-    { label: "本轮最好", data: xs(bestP.h_plot || []), borderColor: css("--accent"), pointRadius: 0, borderWidth: 1 } ] },
+    { label: "参照解", data: xs(refP.h_plot || []), borderColor: css("--ref"), pointRadius: 0, borderWidth: 3, order: 2 },
+    { label: "本轮最好", data: xs(bestP.h_plot || []), borderColor: css("--accent"), pointRadius: 0, borderWidth: 1, order: 1 } ] },
     options: base("x ∈ [0, 2]", "h(x)", { x: { min: 0, max: 2 }, y: { min: 0, max: 1 } }) });
 
   // 8. generation latency vs output tokens
