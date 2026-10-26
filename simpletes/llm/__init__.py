@@ -8,6 +8,8 @@ generator's point of view:
   through a process pool for true parallelism.
 - ``AnthropicStreamClient`` — Anthropic Messages API, streaming, with
   API-health classification (``simpletes.llm.health``).
+- ``OpenAIStreamClient`` — OpenAI-compatible chat completions, streaming,
+  with the same API-health classification (reasoning gateways such as qwen).
 - ``VLLMTokenForcingClient`` — direct httpx to a vLLM server with
   two-phase GPT-OSS Harmony token forcing (reasoning budget control).
 
@@ -68,6 +70,20 @@ def create_llm_client(config: EngineConfig) -> LLMBackend:
             api_base=config.api_base,
             timeout=config.timeout,
             effort=config.reasoning_effort,
+            first_event_timeout=config.first_chunk_timeout,
+            stall_timeout=config.stall_timeout,
+        )
+    if config.llm_backend == "openai_stream":
+        from simpletes.llm.openai_stream_client import OpenAIStreamClient
+
+        return OpenAIStreamClient(
+            model=config.model,
+            max_tokens=config.max_tokens,
+            api_key=config.api_key,
+            api_base=config.api_base,
+            timeout=config.timeout,
+            effort=config.reasoning_effort,
+            temperature=config.temperature,
             first_event_timeout=config.first_chunk_timeout,
             stall_timeout=config.stall_timeout,
         )

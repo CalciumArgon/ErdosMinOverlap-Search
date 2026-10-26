@@ -1,10 +1,12 @@
 #!/bin/bash
 # v4 smoke tests (prep notebook). Usage:  bash scripts/smoke_v4.sh [a|b|c|deep|all]
+#   SMOKE_BACKEND=openai_stream (default: qwen3.8-max @ SIMPLELLM_BASE_URL) | anthropic
+#   SMOKE_EFFORT  deep-call effort (default max)
 #   a     gateway protocol + API classes (ping, bad key, short timeout, 8-way concurrency)
 #   b     evaluator / certify (no LLM): reference reproduces 0.38086768, repeat
 #         invariance, diagnostics fields, constant rejection
 #   c     mini run: 1 explore + 1 exploit chain, low effort, then --resume
-#   deep  one real-depth xhigh generation call (long: calibrates --timeout)
+#   deep  one real-depth generation call at SMOKE_EFFORT (long: calibrates --timeout)
 # Output: /tmp/smoke_v4/<stage>.log ; grep "SMOKE\|CERTIFY\|API-HEALTH".
 cd /inspire/hdd/global_user/260107010002/home/SimpleTES || exit 1
 export PATH=/inspire/hdd/global_user/260107010002/.tools:$PATH
@@ -19,8 +21,33 @@ UV_DEFAULT_INDEX=http://nexus.sii.shaipower.online/repository/pypi_proxy/simple/
 # absolute: evaluator subprocesses run with cwd = a temp eval dir
 REF=$PWD/best_results/mathematics_discovery/erdos_minimum_overlap/erdos_minimum_overlap_best_construction.json
 STAGE=${1:-all}
+export SMOKE_BACKEND=${SMOKE_BACKEND:-openai_stream}
+export SMOKE_EFFORT=${SMOKE_EFFORT:-max}
+if [ "$SMOKE_BACKEND" = anthropic ]; then
+    LLM_ARGS=(--llm-backend anthropic --model claude-opus-5-5 --api-base "$ANTHROPIC_BASE_URL" --max-tokens 32000)
+else
+    LLM_ARGS=(--llm-backend openai_stream --model qwen3.8-max --api-base "$SIMPLELLM_BASE_URL" --max-tokens 32768)
+fi
 
 stage_a() {
+    if [ "$SMOKE_BACKEND" = anthropic ]; then stage_a_anthropic; else stage_a_openai; fi
+    echo "=== a.3 client classes ($SMOKE_BACKEND, effort $SMOKE_EFFORT) ==="
+    $PY scripts/smoke_v4_api.py ping badkey shorttime conc 8
+}
+
+stage_a_openai() {
+    echo "=== a.1 gateway models + protocol (HTTP status only) ==="
+    code=$(curl -sS -m 60 -o "$SMOKE_DIR/proto_models.json" -w "%{http_code}" \
+        -H "Authorization: Bearer $OPENAI_API_KEY" "$SIMPLELLM_BASE_URL/models")
+    echo "SMOKE proto /models HTTP=$code qwen3.8-max listed: $(grep -c '"qwen3.8-max"' "$SMOKE_DIR/proto_models.json")"
+    echo "=== a.2 reasoning_effort=$SMOKE_EFFORT streams reasoning_content? (first 20 delta keys) ==="
+    body='{"model":"qwen3.8-max","max_tokens":4096,"stream":true,"reasoning_effort":"'"$SMOKE_EFFORT"'","messages":[{"role":"user","content":"Is 1001 prime? Think briefly."}]}'
+    curl -sS -N -m 300 -H "Authorization: Bearer $OPENAI_API_KEY" -H "content-type: application/json" \
+        -d "$body" "$SIMPLELLM_BASE_URL/chat/completions" \
+        | grep -o '"\(reasoning_content\|content\|finish_reason\)":' | head -20 | tr '\n' ' '; echo
+}
+
+stage_a_anthropic() {
     echo "=== a.1 gateway protocol (HTTP status only) ==="
     for path in /v1/messages /v1/chat/completions; do
         if [ "$path" = /v1/messages ]; then
@@ -42,8 +69,6 @@ stage_a() {
     curl -sS -N -m 300 -H "x-api-key: $ANTHROPIC_API_KEY" -H "anthropic-version: 2023-06-01" \
         -H "content-type: application/json" -d "$body" "$ANTHROPIC_BASE_URL/v1/messages" \
         | grep -o '"type":"[a-z_]*"' | head -30 | tr '\n' ' '; echo
-    echo "=== a.3 client classes ==="
-    $PY scripts/smoke_v4_api.py ping badkey shorttime conc 8
 }
 
 stage_b() {
@@ -84,7 +109,7 @@ PY
 }
 
 stage_c() {
-    echo "=== c.1 mini run (1 explore + 1 exploit, effort low) ==="
+    echo "=== c.1 mini run (1 explore + 1 exploit, effort low, $SMOKE_BACKEND) ==="
     export EVALUATOR_CONCURRENT_PROCESSES=4 EVALUATOR_TIMEOUT_SECONDS=300
     export SIMPLETES_INITIAL_SHARED_CONSTRUCTION_PATH=$REF ERDOS_REFERENCE_PATH=$REF ERDOS_REFERENCE_C5=0.38086768
     export SIMPLETES_REFLECTION_TIMEOUT=600
@@ -92,8 +117,8 @@ stage_c() {
     common=(--init-program datasets/erdos/erdos_min_overlap/init_program.py
         --evaluator datasets/erdos/erdos_min_overlap/evaluator_legacy.py
         --instruction datasets/erdos/erdos_min_overlap/erdos_min_overlap.txt
-        --llm-backend anthropic --model claude-opus-5-5 --api-base "$ANTHROPIC_BASE_URL"
-        --reasoning-effort low --reflection-effort low --max-tokens 32000 --timeout 1800
+        "${LLM_ARGS[@]}"
+        --reasoning-effort low --reflection-effort low --timeout 1800
         --first-chunk-timeout 300 --stall-timeout 600
         --selector rpucg --num-chains 2 --explore-chains 1 --shared-construction-scope global
         --k-candidates 2 --gen-concurrency 4 --eval-concurrency 4 --eval-timeout 400

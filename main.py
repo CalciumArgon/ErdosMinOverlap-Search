@@ -107,11 +107,14 @@ def _run_preflight(config) -> None:
 
     from simpletes.llm import LLMCallError, LLMClient
 
-    if config.llm_backend == "anthropic":
-        from simpletes.llm.anthropic_client import AnthropicStreamClient
+    if config.llm_backend in ("anthropic", "openai_stream"):
+        if config.llm_backend == "anthropic":
+            from simpletes.llm.anthropic_client import AnthropicStreamClient as StreamClient
+        else:
+            from simpletes.llm.openai_stream_client import OpenAIStreamClient as StreamClient
 
         try:
-            AnthropicStreamClient(
+            StreamClient(
                 model=config.model,
                 max_tokens=config.max_tokens,
                 api_key=config.api_key,

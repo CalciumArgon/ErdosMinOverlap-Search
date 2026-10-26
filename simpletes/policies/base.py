@@ -214,8 +214,8 @@ class TrajectoryPolicyBase(Selector):
         llm_policy_model: str | None = None,
         llm_policy_api_base: str | None = None,
         llm_policy_api_key: str | None = None,
-        # Backend for reflection calls ("anthropic" streams through
-        # AnthropicStreamClient; anything else uses litellm)
+        # Backend for reflection calls ("anthropic" / "openai_stream" stream
+        # through the matching client; anything else uses litellm)
         llm_backend: str = "litellm",
         reflection_effort: str | None = None,
         # Task instruction for context
@@ -237,6 +237,7 @@ class TrajectoryPolicyBase(Selector):
         self.llm_backend = llm_backend or "litellm"
         self.reflection_effort = reflection_effort or "medium"
         self._anthropic_reflector = None
+        self._openai_reflector = None
         self.task_instruction = task_instruction
 
         self.chain_gen_budget = compute_chain_budgets(self.max_generations, self.num_chains)
@@ -454,6 +455,8 @@ class TrajectoryPolicyBase(Selector):
         )
         if self.llm_backend == "anthropic":
             return await self._reflect_anthropic(prompt)
+        if self.llm_backend == "openai_stream":
+            return await self._reflect_openai_stream(prompt)
 
         # The reflection output is a two-line Approach/Insight summary, so it does
         # NOT need the deep thinking budget that generation uses. Reusing the
@@ -500,6 +503,40 @@ class TrajectoryPolicyBase(Selector):
         except Exception:
             return ""
         text = extract_approach_insight(text)
+        if len(text) > _MAX_REFLECTION_OUTPUT_CHARS:
+            text = text[:_MAX_REFLECTION_OUTPUT_CHARS].rstrip()
+        return text
+
+    async def _reflect_openai_stream(self, prompt: str) -> str:
+        """Reflection through the streaming OpenAI-compatible client.
+
+        Own effort (``--reflection-effort``, default medium), bounded
+        max_tokens / timeout, and an empty extra body so the two-line summary
+        never inherits a deep thinking_budget from SIMPLETES_EXTRA_BODY.
+        Failures are recorded in api_health.jsonl and return "".
+        """
+        try:
+            refl_timeout = float(os.environ.get("SIMPLETES_REFLECTION_TIMEOUT", "1200"))
+        except (TypeError, ValueError):
+            refl_timeout = 1200.0
+        try:
+            if self._openai_reflector is None:
+                from simpletes.llm.openai_stream_client import OpenAIStreamClient
+                self._openai_reflector = OpenAIStreamClient(
+                    model=self.llm_policy_model,
+                    max_tokens=32768,
+                    api_key=self.llm_policy_api_key,
+                    api_base=self.llm_policy_api_base,
+                    timeout=refl_timeout,
+                    effort=self.reflection_effort,
+                )
+            text, _raw, _usage, _h = await self._openai_reflector.stream_text(
+                prompt, kind="reflection", effort=self.reflection_effort,
+                timeout=refl_timeout, extra_override={},
+            )
+        except Exception:
+            return ""
+        text = extract_approach_insight((text or "").strip())
         if len(text) > _MAX_REFLECTION_OUTPUT_CHARS:
             text = text[:_MAX_REFLECTION_OUTPUT_CHARS].rstrip()
         return text

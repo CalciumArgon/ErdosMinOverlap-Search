@@ -143,15 +143,15 @@ class EngineConfig:
     timeout: float | None = 3000
     max_total_tokens: int | None = None  # Total token budget (prompt + completion). If set, caps completion tokens.
     reasoning_effort: str = "medium"  # Reasoning effort level for supported models (low, medium, high)
-    llm_backend: str = "litellm"  # litellm | vllm_token_forcing | anthropic
-    # anthropic backend: API-health deadlines (seconds). first_chunk_timeout
+    llm_backend: str = "litellm"  # litellm | vllm_token_forcing | anthropic | openai_stream
+    # anthropic / openai_stream backends: API-health deadlines (seconds). first_chunk_timeout
     # bounds the wait for the first stream event; stall_timeout bounds the gap
     # between events. Exceeding either means the API is broken (api_no_start /
     # api_stalled), as opposed to hitting the total --timeout while events are
     # still arriving (timeout_mid_generation).
     first_chunk_timeout: float = 600.0
     stall_timeout: float = 1200.0
-    reflection_effort: str | None = None  # anthropic backend: effort for reflection calls
+    reflection_effort: str | None = None  # anthropic / openai_stream: effort for reflection calls
 
     # Token forcing (vllm_token_forcing backend)
     reasoning_budget: int | None = 32768  # Phase 1 total budget (prompt + reasoning). None = auto from context_window - response_budget

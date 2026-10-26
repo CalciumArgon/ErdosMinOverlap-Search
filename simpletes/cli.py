@@ -276,9 +276,9 @@ def build_parser(*, mode: str = "single") -> argparse.ArgumentParser:
     parser.add_argument(
         "--llm-backend",
         type=str,
-        choices=["litellm", "vllm_token_forcing", "anthropic"],
+        choices=["litellm", "vllm_token_forcing", "anthropic", "openai_stream"],
         default=None,
-        help="LLM backend to use (litellm, vllm_token_forcing, anthropic). Defaults to litellm.",
+        help="LLM backend to use (litellm, vllm_token_forcing, anthropic, openai_stream). Defaults to litellm.",
     )
     parser.add_argument(
         "--first-chunk-timeout",
@@ -297,7 +297,7 @@ def build_parser(*, mode: str = "single") -> argparse.ArgumentParser:
         type=str,
         choices=["low", "medium", "high", "xhigh", "max"],
         default=None,
-        help="(anthropic backend) effort for reflection calls (default: medium)",
+        help="(anthropic / openai_stream backends) effort for reflection calls (default: medium)",
     )
     parser.add_argument(
         "--model",

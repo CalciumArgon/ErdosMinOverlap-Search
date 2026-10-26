@@ -1,6 +1,8 @@
 #!/bin/bash
 # v4 formal run: Erdős minimum overlap, legacy dense grid, exact-score semantics.
-#   claude-opus-5-5 (Anthropic Messages API, streamed, adaptive thinking, effort xhigh)
+#   BACKEND=openai_stream (default): qwen3.8-max @ apicz.boyuerichdata.com, streamed
+#     chat completions, reasoning_effort=$EFFORT (default max, the gateway's top level)
+#   BACKEND=anthropic: claude-opus-5-5 (Messages API, streamed, adaptive thinking)
 #   rpucg, 4 chains = 2 explore (no warm start) + 2 exploit (global-best warm start)
 #   API-health classification -> <instance>/api_health.jsonl, [API-HEALTH] log lines
 # Runs inside a CPU HPC job (HPC-可上网区资源-2) or the prep notebook.
@@ -8,9 +10,9 @@
 # Env overrides:
 #   RUN_NAME   output dir under checkpoints/ (default erdos-v4)
 #   RESUME     checkpoint path to resume from (continues a run past the 24 h job limit)
-#   EFFORT     generation effort (default xhigh); zl.yyapi.cloud cuts every stream at ~640 s
-#   GEN_TIMEOUT / FIRST_CHUNK_TIMEOUT / STALL_TIMEOUT   seconds (calibrated by smoke_v4.sh:
-#              first event <= 11 s, max event gap <= 10 s, gateway stream cut ~640 s)
+#   BACKEND    openai_stream (default, qwen) | anthropic (claude; zl.yyapi.cloud cuts streams at ~640 s)
+#   EFFORT     generation effort (default max for qwen, high for claude)
+#   GEN_TIMEOUT / FIRST_CHUNK_TIMEOUT / STALL_TIMEOUT   seconds (calibrated by smoke_v4.sh)
 #   MAX_GENERATIONS, GEN_CONCURRENCY
 set -x
 cd /inspire/hdd/global_user/260107010002/home/SimpleTES || exit 1
@@ -34,15 +36,28 @@ uv sync
 UV_DEFAULT_INDEX=http://nexus.sii.shaipower.online/repository/pypi_proxy/simple/ uv pip install --python .venv/bin/python "anthropic==0.125.0"
 
 # --- secrets (never echoed) ---
-# simpletes.env must define ANTHROPIC_API_KEY and ANTHROPIC_BASE_URL; the
-# anthropic SDK reads the key from the environment, so it never appears in argv.
+# simpletes.env defines OPENAI_API_KEY + SIMPLELLM_BASE_URL (qwen) and
+# ANTHROPIC_API_KEY + ANTHROPIC_BASE_URL (claude). Both clients read the key
+# from the environment, so it never appears in argv.
 set +x
 set -a
 . /inspire/hdd/global_user/260107010002/.secrets/simpletes.env
 set +a
 set -x
-if [ -z "$ANTHROPIC_API_KEY" ] || [ -z "$ANTHROPIC_BASE_URL" ]; then
-    echo "missing ANTHROPIC_API_KEY / ANTHROPIC_BASE_URL in simpletes.env"; exit 2
+BACKEND=${BACKEND:-openai_stream}
+if [ "$BACKEND" = anthropic ]; then
+    if [ -z "$ANTHROPIC_API_KEY" ] || [ -z "$ANTHROPIC_BASE_URL" ]; then
+        echo "missing ANTHROPIC_API_KEY / ANTHROPIC_BASE_URL in simpletes.env"; exit 2
+    fi
+    LLM_ARGS=(--llm-backend anthropic --model claude-opus-5-5 --api-base "$ANTHROPIC_BASE_URL"
+        --reasoning-effort "${EFFORT:-high}" --max-tokens 128000)
+else
+    if [ -z "$OPENAI_API_KEY" ] || [ -z "$SIMPLELLM_BASE_URL" ]; then
+        echo "missing OPENAI_API_KEY / SIMPLELLM_BASE_URL in simpletes.env"; exit 2
+    fi
+    # max_tokens 131072 is the gateway ceiling; reasoning tokens count against it.
+    LLM_ARGS=(--llm-backend openai_stream --model qwen3.8-max --api-base "$SIMPLELLM_BASE_URL"
+        --reasoning-effort "${EFFORT:-max}" --max-tokens 131072)
 fi
 
 # --- evaluation ---
@@ -63,12 +78,8 @@ if [ -n "$RESUME" ]; then RESUME_ARGS=(--resume "$RESUME"); fi
   --init-program datasets/erdos/erdos_min_overlap/init_program.py \
   --evaluator datasets/erdos/erdos_min_overlap/evaluator_legacy.py \
   --instruction datasets/erdos/erdos_min_overlap/erdos_min_overlap.txt \
-  --llm-backend anthropic \
-  --model claude-opus-5-5 \
-  --api-base "$ANTHROPIC_BASE_URL" \
-  --reasoning-effort "${EFFORT:-xhigh}" \
+  "${LLM_ARGS[@]}" \
   --reflection-effort medium \
-  --max-tokens 128000 \
   --timeout "${GEN_TIMEOUT:-1800}" \
   --first-chunk-timeout "${FIRST_CHUNK_TIMEOUT:-300}" \
   --stall-timeout "${STALL_TIMEOUT:-300}" \
