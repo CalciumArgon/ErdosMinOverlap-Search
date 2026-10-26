@@ -58,7 +58,24 @@ def downsample(x: np.ndarray, m: int, how: str) -> list[float]:
     return [float(f(x[a:b])) for a, b in zip(edges[:-1], edges[1:]) if b > a]
 
 
-def construction_profile(path: str, do_certify: bool) -> dict:
+def diff_vs_reference(h: np.ndarray, ref: np.ndarray) -> dict:
+    """h - (closest symmetry image of ref), both on the common refinement grid.
+
+    The best solutions are near-identical to the reference, so the curves overlap
+    in a plot; their difference shows where the search actually changed h.
+    """
+    n, m = len(h), len(ref)
+    lcm = n * m // np.gcd(n, m)
+    hh, rr = np.repeat(h, lcm // n), np.repeat(ref, lcm // m)
+    images = {"identity": rr, "reflect": rr[::-1], "complement": 1 - rr, "reflect+complement": (1 - rr)[::-1]}
+    name, img = min(images.items(), key=lambda kv: float(np.abs(hh - kv[1]).sum()))
+    d = hh - img
+    return {"image": name, "l1": float(np.abs(d).sum() * 2.0 / lcm), "max_abs": float(np.abs(d).max()),
+            "plot": downsample(d, MAX_PLOT_POINTS, "mean"),
+            "plot_absmax": downsample(np.abs(d), MAX_PLOT_POINTS, "max")}
+
+
+def construction_profile(path: str, do_certify: bool, ref: np.ndarray | None = None) -> dict:
     h = load_h_snapshot(path)
     n = len(h)
     dx = 2.0 / n
@@ -73,6 +90,8 @@ def construction_profile(path: str, do_certify: bool) -> dict:
         "corr_plot_shift": [float(s) for s in np.linspace(-2 + dx, 2 - dx, min(MAX_PLOT_POINTS, len(c)))],
         "corr_plot": downsample(c, MAX_PLOT_POINTS, "max"),
     }
+    if ref is not None:
+        out["diff_vs_reference"] = diff_vs_reference(h, ref)
     k = int(np.argmax(c))
     w = max(1, n // 40)  # zoom window around the peak, shown at full resolution where small
     lo, hi = max(0, k - w), min(len(c), k + w + 1)
@@ -145,12 +164,14 @@ def main() -> int:
                              "created_at": r["created_at"], "c5": c5})
 
     shared_dir = os.path.join(inst, "shared_constructions")
+    root = os.path.join(shared_dir, timeline[0]["id"] + ".json") if timeline else None
+    ref = load_h_snapshot(root) if root and os.path.exists(root) else None
     profiles = {}
     for t in timeline:
         p = os.path.join(shared_dir, t["id"] + ".json")
         if os.path.exists(p):
             print("profile", t["id"][:8], flush=True)
-            profiles[t["id"]] = construction_profile(p, do_certify)
+            profiles[t["id"]] = construction_profile(p, do_certify, ref)
 
     data = {"instance": os.path.basename(inst), "db_state": os.path.basename(d), "config": cfg,
             "metadata": meta, "nodes": rows, "health": health, "failures": fails,
