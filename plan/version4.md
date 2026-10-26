@@ -245,3 +245,31 @@ proof.md 本身不改，只在开头加一行指向 problem_formulation.md。
   - `scripts/run_erdos_v4.sh`，支持 `RESUME` / `GEN_TIMEOUT` 等环境变量覆盖；
   - `scripts/certify_erdos_grid.py`：Kronecker 大整数乘法做精确相关，`--direct` 用 O(N²) 交叉校验。
 - 密钥只存放在 qz 的 `.secrets/simpletes.env`（`ANTHROPIC_API_KEY`、`ANTHROPIC_BASE_URL`），由 SDK 从环境变量读取，不出现在 argv 和日志里。
+
+## 生成模型切换：claude-opus-5-5 → qwen3.8-max（2026-10-26）
+
+- **为什么换**：zl.yyapi.cloud（claude）会在约 640 s 时切断每一条流。
+  - xhigh 在切断前一直在思考，最终只输出 1 个字符，一直写不出代码；high 和 medium 能写完（299 s / 137 s）。
+  - 之后这个 API 无法再使用，于是换回 apicz.boyuerichdata.com 上的 qwen3.8-max。
+- **网关参数（qz 实测）**：
+  - `reasoning_effort` 可取 `none|minimal|low|medium|high|xhigh|max`，`max` 是最高档；
+  - `thinking_budget` ≤ 262144；`max_tokens` 的取值范围是 [1, 131072]；
+  - `reasoning_effort` 和 `thinking_budget` 不能同时设置（返回 HTTP 400）。
+- **最高档实测（erdos prompt，max_tokens 131072，2 路并行）**：
+
+  | effort | 耗时 | 输出 tokens | 其中推理 tokens | 代码字符数 | 首事件 | 最大间隔 |
+  |---|---|---|---|---|---|---|
+  | max | 2119 s | 83,932 | 79,305 | 13,404 | 1.3 s | 2.9 s |
+  | xhigh | 2069 s | 79,633 | 74,216 | 16,012 | 1.3 s | 2.3 s |
+
+  两档都以 `finish=stop` 正常结束，离 131072 的上限还有约 47K 的余量。正式运行使用 `max`。
+- **代码改动**：
+  - 新增 `--llm-backend openai_stream`（`simpletes/llm/openai_stream_client.py`）。它走流式 chat completions，健康分类、重试/退款和 API_ALERT 与 claude 后端完全一致。旧的 litellm 是同步调用，只能超时，分不清"没开始"和"还在想"。
+  - 连接关闭时既没有 finish_reason 也没有 `[DONE]`，记为 `api_stream_cut`。
+  - 反思使用同一后端，用自己的 effort，不继承 `thinking_budget`。
+- **运行配置**：`run_erdos_v4.sh` 默认 `BACKEND=openai_stream`、`EFFORT=max`、`--max-tokens 131072`、`--timeout 5400`（约为实测 2119 s 的 2.5 倍，给并发留余量）、`--first-chunk-timeout 300`、`--stall-timeout 300`。
+- **冒烟（qwen，全部通过）**：
+  - a：ping ok；坏 key → api_no_start；45 s 截断 → timeout_mid_generation（期间推理一直在流式输出）；8 路并发 8/8。
+  - b：精确复核 0.380867675828；repeat 不变性成立；诊断字段正确；常数解被拒。
+  - c：迷你运行 6 次生成（low，120–202 s）、3 次反思全部 ok；resume 正常。
+- 密钥：`OPENAI_API_KEY` 和 `SIMPLELLM_BASE_URL` 只存放在 qz 的 `.secrets/simpletes.env`，不进 git。

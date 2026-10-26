@@ -12,7 +12,8 @@
 #   RESUME     checkpoint path to resume from (continues a run past the 24 h job limit)
 #   BACKEND    openai_stream (default, qwen) | anthropic (claude; zl.yyapi.cloud cuts streams at ~640 s)
 #   EFFORT     generation effort (default max for qwen, high for claude)
-#   GEN_TIMEOUT / FIRST_CHUNK_TIMEOUT / STALL_TIMEOUT   seconds (calibrated by smoke_v4.sh)
+#   GEN_TIMEOUT / FIRST_CHUNK_TIMEOUT / STALL_TIMEOUT   seconds (calibrated on qz: qwen effort=max
+#              on the erdos prompt took 2119 s / 84K tokens, first event 1.3 s, max gap 2.9 s)
 #   MAX_GENERATIONS, GEN_CONCURRENCY
 set -x
 cd /inspire/hdd/global_user/260107010002/home/SimpleTES || exit 1
@@ -80,7 +81,7 @@ if [ -n "$RESUME" ]; then RESUME_ARGS=(--resume "$RESUME"); fi
   --instruction datasets/erdos/erdos_min_overlap/erdos_min_overlap.txt \
   "${LLM_ARGS[@]}" \
   --reflection-effort medium \
-  --timeout "${GEN_TIMEOUT:-1800}" \
+  --timeout "${GEN_TIMEOUT:-5400}" \
   --first-chunk-timeout "${FIRST_CHUNK_TIMEOUT:-300}" \
   --stall-timeout "${STALL_TIMEOUT:-300}" \
   --selector rpucg \
