@@ -1,0 +1,28 @@
+<section id="changes">
+  <h2>本轮修改：做了什么、为什么、直觉</h2>
+  <div class="prose">
+    <p>v1–v3 都没有候选超过 warm start（c5 = 0.38086768）。读 round 3 的结果和代码后，我们判断瓶颈不在"LLM 不够聪明"，而在它周围的四件事：
+      模型不知道小改进有意义；提示里看不到小改进；链之间不交换成果；API 故障会悄悄吃掉预算。
+      所以 v4 不改 meta search 的范式，只改这些 meta-meta 层的环节。</p>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>#</th><th>层</th><th>修改</th><th>目的</th><th>直觉 / 依据</th><th>commit</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td>理论</td><td><code>reports/problem_formulation.md</code>：从原始问题到搜索问题的完整证明链，包括 Swinnerton-Dyer 等价的自证、L¹ 稳定性、网格引理和随机舍入</td><td>确定"在网格数组上搜索"到底在解什么问题</td><td>round 3 把分数值数组当作"松弛"，担心二值化会造成 4.6% 的 gap。证明后发现分数值和二值的下确界相等，这个担心不成立。详见<a href="#transfer">第 7 章</a></td><td class="mono">284b1fd</td></tr>
+        <tr><td>2</td><td>评测</td><td>取消二值化阶段，只保留严格复核。新增 <code>scripts/certify_erdos_grid.py</code>：float64 精确转成二进有理数，有理数修正质量，大整数精确相关，向上取整</td><td>每个候选分数都是可以直接引用的严格上界</td><td>有意义的改进在 10⁻⁹–10⁻⁶。浮点误差约 5×10⁻¹³，排序不会出错，但对外报告时必须精确</td><td class="mono">5b229ca</td></tr>
+        <tr><td>3</td><td>任务语义</td><td>重写 <code>erdos_min_overlap.txt</code>：删掉"这是松弛"的说法，写明分数对返回的阶梯函数精确，repeat 上采样不改变分数，有意义的改进是 10⁻⁶ 量级；评测预算 3000 s</td><td>让模型把预算花在真正的数值搜索上</td><td>模型以前认为小数点后第 7 位的改进是噪声，而且会为了"更真实"去二值化，把解改坏</td><td class="mono">5b229ca</td></tr>
+        <tr><td>4</td><td>信息流</td><td>prompt 里的浮点数从 <code>:.6f</code> 改为 <code>:.10g</code>；evaluator 增加诊断字段：<code>c5_str</code>、<code>gap_to_reference_e6</code>、<code>used_warm_start</code>、<code>returned_reference_unchanged</code>、<code>l1_to_reference</code>（对称轨道上的精确 L¹ 最小值）、<code>n_active_shifts</code></td><td>让下一步的模型看见上一步具体发生了什么</td><td><code>:.6f</code> 会把 0.3808676489 和 0.3808676758 都打印成 0.380868，进化信号直接丢失</td><td class="mono">5b229ca</td></tr>
+        <tr><td>5</td><td>链分工</td><td><code>--explore-chains 2</code>：链 0、1 不注入 GLOBAL_BEST_CONSTRUCTION，必须从零构造；链 2、3 为利用链</td><td>同时跑"新结构"和"精修"两条路线</td><td>前三轮所有链都从同一个解出发，多样性只能靠 LLM 自己发明</td><td class="mono">5b229ca</td></tr>
+        <tr><td>6</td><td>链间共享</td><td><code>--shared-construction-scope global</code>：任一链刷新全局最好时，立即推给所有利用链</td><td>一条链的突破马上成为另一条链的起点</td><td>此前共享只在链内进行，链 3 的进展传不到链 2。本轮的四次跳变里有三次正是这种接力（见<a href="#breakthroughs">关键突破</a>）</td><td class="mono">5b229ca</td></tr>
+        <tr><td>7</td><td>反思</td><td>rpucg 反思模板的 Insight 改为诊断搜索本身：是否用了 warm start、差距、L¹ 位移、耗时、瓶颈组件、下一步改什么；仍然不描述"好解的形状"</td><td>反思写成可执行的调参建议</td><td>round 3 的反思出现过误诊：把 0.412 归因于投影，实际原因是 warm start 没传到</td><td class="mono">5b229ca</td></tr>
+        <tr><td>8</td><td>API 健康</td><td>生成调用改为流式，每次调用分类：ok / api_no_start / api_stalled / api_stream_cut / timeout_mid_generation / truncated_length / empty_content。API 类错误退还预算并退避重试；连续 3 次触发 API_ALERT，30 分钟不恢复则以退出码 3 停止</td><td>把"API 坏了，根本没开始"和"思考太深，没写完"分开</td><td>旧的同步调用只能超时，两种情况在日志里一模一样，可能空烧 24 小时</td><td class="mono">5b229ca · 01a6e0b · 784cfbb</td></tr>
+        <tr><td>9</td><td>修 bug</td><td>相对 <code>--output-path</code> 导致 warm start 被静默丢弃：evaluator 子进程的 cwd 是临时目录，相对路径解析不到。改为绝对路径</td><td>利用链真的拿到全局最好</td><td>冒烟测试抓到的。这类 bug 会让"利用链"实际退化成冷启动，round 3 那个 0.412 就是这种情况</td><td class="mono">2f26657</td></tr>
+        <tr><td>10</td><td>修 bug</td><td>resume 时传入更大的 <code>--max-generations</code> 会卡死（剩余预算显示为 0）</td><td>能跨 24 小时作业续跑</td><td>冒烟 stage c 验证过</td><td class="mono">23c32c4</td></tr>
+        <tr><td>11</td><td>模型</td><td>先试 claude-opus-5-5（xhigh），后改为 qwen3.8-max；新增 <code>--llm-backend openai_stream</code></td><td>拿到能写完代码的最深思考</td><td>claude 网关约 640 s 就切断所有流，xhigh 在切断前还没开始写代码，网关也因此停用。qwen 的流式推理每约 1 s 推送一次，能及时判断调用是否还活着</td><td class="mono">784cfbb</td></tr>
+        <tr><td>12</td><td>深度</td><td>qwen 用 <code>thinking_budget=122880</code>，不用 effort</td><td>在 API 上限下取最深</td><td>effort 和 budget 约束的是同一个推理通道，budget 是更精确的上限。max_tokens 上限 131072，推理也算在里面，所以 122880 是能用的最深值，给代码留约 8K</td><td class="mono">043e5b1</td></tr>
+        <tr><td>13</td><td>规模</td><td>k = 2 × 每链 10 步（替代 k = 4 × 5 步），总计 80 次生成</td><td>链更长，进化层数更多</td><td>同样 80 次生成，串行步数加倍。同一步的候选彼此独立，只有跨步才有递进</td><td class="mono">73ec4b2</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>

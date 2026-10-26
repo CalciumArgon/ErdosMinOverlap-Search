@@ -1,0 +1,71 @@
+<section id="transfer">
+  <h2>与原问题的关系：搜到的数到底是什么的界</h2>
+  <div class="prose">
+    <p>这一章决定整个搜索范式成立与否。问题是：我们在一个长度为 N 的数组上做优化，得到的数是 Erdős 原问题常数的上界，还是某个"近似问题"上的一个数？
+      结论是前者，而且<strong>不需要任何恢复步骤</strong>。下面给出证明链，然后逐一回答几个容易混淆的问题。
+      完整证明在 <code>reports/problem_formulation.md</code>（v4 commit 284b1fd）。</p>
+
+    <h3>7.1 原问题和常数 μ</h3>
+    <p>把 {1, …, 2n} 分成两半 A ⊔ B，|A| = |B| = n。令 M<sub>k</sub> = #{(a, b) ∈ A × B : a − b = k}，M(n) = min<sub>A</sub> max<sub>k</sub> M<sub>k</sub>。
+      Erdős 问的是 μ = lim M(n)/n。已知 0.379005 ≤ μ（White 2022）。上界来自构造，下面会和文献比较。</p>
+
+    <h3>7.2 搜索实际在优化什么</h3>
+    <p>候选程序返回数组 v ∈ [0,1]<sup>N</sup>，要求 Σv<sub>i</sub> = N/2。evaluator 计算</p>
+  </div>
+  <div class="display-math">Φ(v) = (2/N) · max_k Σ_i v_i (1 − v_{i+k})      （只对 0 ≤ i, i+k ≤ N−1 求和）
+       = max(np.correlate(v, 1 − v, 'full')) · 2/N</div>
+  <div class="prose">
+    <p>数组 v 对应 [0, 2] 上的阶梯函数 f<sub>v</sub>：第 i 格 [2i/N, 2(i+1)/N) 上取值 v<sub>i</sub>。它在 [0,1] 中取值，积分为 1。</p>
+
+    <h3>7.3 证明链：数组 → 函数 → μ 的上界</h3>
+    <ol>
+      <li><strong>连续泛函.</strong> 对 [0,2] 上取值于 [0,1]、积分为 1 的可测函数 f，定义
+        <span class="math">A_f(s) = ∫<sub>D_s</sub> f(x)(1 − f(x+s)) dx</span>，其中 D<sub>s</sub> = {x ∈ [0,2] : x+s ∈ [0,2]}，并令 C(f) = sup<sub>s∈ℝ</sub> A<sub>f</sub>(s)。</li>
+      <li><strong>evaluator 精确计算 C(f<sub>v</sub>)（引理 4.1）.</strong> 对阶梯函数，A<sub>f_v</sub>(s) 是以 (k·2/N, (2/N)·c<sub>k</sub>) 为节点的分段线性函数。分段线性函数的最大值在节点处取到，所以对连续 s 的 sup 恰好等于对格点平移 k 的 max，并且 <span class="math">Φ(v) = C(f<sub>v</sub>)</span> <strong>严格相等</strong>，不是近似。</li>
+      <li><strong>Swinnerton-Dyer 定理（定理 5.1，文档中自证）.</strong> μ = inf<sub>f</sub> C(f)。下确界取遍上述所有 f，等于只取阶梯函数，也等于只取 0/1 值的阶梯函数。证明分两半：
+        命题 4.2 把任意划分 A 嵌入为 0/1 阶梯函数，且 C(f<sub>A</sub>) = max<sub>k</sub>M<sub>k</sub>/n，给出 ≥；定理 4.3 用随机舍入从任意阶梯函数构造划分，误差 O(√(log n / n))，给出 ≤。</li>
+      <li><strong>精确复核.</strong> <code>certify_erdos_grid.py</code> 把 float64 数组精确转成二进有理数，在一个有余量的格子上做约 10⁻¹² 的有理数质量修正，使 Σv = N/2 精确成立，然后用大整数算出精确的 max<sub>k</sub> c<sub>k</sub>，再向上取整。所以报告的数是<em>那个精确可行的函数</em>的 C 值的上取整。</li>
+    </ol>
+    <p>四步合起来：</p>
+  </div>
+  <div class="display-math">μ  ≤  μ_N  ≤  C(f_v)  =  Φ(v)  ≤  报告的严格上界          （μ_N = N 格阶梯函数上的最小值）
+本轮：μ ≤ <span data-k="best_cert_inline"></span></div>
+  <div class="prose">
+    <h3>7.4 几个关键问题</h3>
+    <div class="verdict"><strong>问：这是一个"更紧的 bound"，还是"恢复成原问题之后"的上界？</strong>
+      <p>都不准确。它<strong>就是原问题常数 μ 的上界本身</strong>，中间没有恢复步骤。f<sub>v</sub> 是原问题连续形式的一个可行点，evaluator 算的是这个点上的目标值，而由定理 5.1，这个目标在可行集上的下确界正是 μ。"更紧"只在和别的界比较时有意义：比参照解更紧，比已公开的界更紧（见 7.6，有前提）。</p></div>
+    <div class="verdict"><strong>问：分数值（0 &lt; v<sub>i</sub> &lt; 1）是不是松弛？原问题要求 0/1 划分。</strong>
+      <p>不是。定理 5.1(d) 说明 [0,1] 值和 0/1 值两类函数的下确界相等，所以松弛 gap 恰好为 0。round 3 在 N = 2400 上测到"二值化后 0.3809 → 0.3983"，比较的是两个不同的量：一个是 μ<sub>2400</sub> 的上界，另一个是 M(1200)/1200 的上界。差距来自有限分辨率，随 n → ∞ 消失。v4 因此取消了二值化。</p></div>
+    <div class="verdict"><strong>问：从网格解到原问题，这种"迁移"是无损的吗？是最优的吗？</strong>
+      <p>分四层看：</p>
+      <ul>
+        <li><strong>目标值计算：无损。</strong>Φ(v) = C(f<sub>v</sub>) 严格相等（引理 4.1）。浮点误差经精确复核后为 0；本轮 evaluator 的 float 与精确值相差 <span class="mono" data-k="float_diff"></span>。</li>
+        <li><strong>可行集限制在 N 格阶梯函数上：有网格 gap μ<sub>N</sub> − μ ≥ 0，大小未知。</strong>它只影响能达到的最好值，不影响上界的有效性。μ<sub>N</sub> 沿加细单调不增并收敛到 μ：np.repeat(v, r) 是同一个函数，分数不变，所以在 rN 上继续优化只会更好。本轮最好解在 N = <span data-k="best_n"></span> 上，参照解在 N = 2400 上，突破都伴随加细。</li>
+        <li><strong>分数值 vs 0/1：无损</strong>（上一问）。</li>
+        <li><strong>落到某个固定 n 的显式划分 (A, B)：有损，而且损失很大。</strong>由定理 4.3，M(n)/n ≤ C(f<sub>v</sub>) + 2√(log(8n)/n)；误差要小于 10⁻³ 需要 n ≈ 10⁸。所以这个结果<em>不是</em>任何具体 n 的 M(n)/n 的有用上界。文献中的上界（Haugland、AlphaEvolve、TTT-Discover）也都是关于极限常数 μ 的，含义相同。</li>
+      </ul></div>
+    <div class="verdict warn"><strong>问：所以这个搜索范式成立吗？它等价于解原始 Erdős 问题吗？</strong>
+      <p><strong>作为上界搜索，成立。</strong>它是在原问题可行集的一个稠密子类（等宽阶梯函数）上做原始（primal）搜索，这个子类上的下确界就是 μ（μ<sub>N</sub> → μ）。所以每一个通过复核的候选都是 μ 的合法上界证书；只要分辨率和优化都推到极限，得到的值会收敛到 μ。</p>
+      <p><strong>它不等价于"解决"原问题。</strong>它给不出下界，证明不了最优性，也定不出 μ。0.379005 ≤ μ ≤ <span data-k="best_cert_inline2"></span> 之间约 1.86 × 10⁻³ 的区间，只能由对偶 / 下界方法收窄（例如 White 2022 的 Fourier 方法）。本范式只能从上方逼近。</p></div>
+
+    <h3>7.5 一阶条件：最好解还没有到局部极小</h3>
+    <p>目标是有限个不定二次函数的最大值，非凸、非光滑（命题 2.4）。KKT 必要条件（定理 7.1）要求：active 平移 K 的梯度有一个凸组合，在所有自由坐标（0 &lt; v<sub>i</sub> &lt; 1）上取同一个值。
+      当 |K| = 1 时，这是"单个梯度在成千上万个自由坐标上相等"的等式组，几乎不可能满足。本轮最好解的<strong>精确 argmax 只有 <span data-k="best_nactive"></span> 个</strong>，但 A(s) 在最大值下方 10⁻⁸ 以内的格点平移有 <span data-k="best_near8"></span> 个（参照解为 <span data-k="ref_near8"></span> 个）。
+      这说明搜索在把峰"压平"，向等振荡结构靠近，但还没到局部极小：沿某个下降方向继续优化，应该还能降低。这是诊断，不是定理（注 7.2）。</p>
+
+    <h3>7.6 和已发表的界比较</h3>
+  </div>
+  <div class="table-wrap"><table id="lit-table"><thead><tr><th>类型</th><th class="num">值</th><th>来源</th><th>说明</th></tr></thead><tbody></tbody></table></div>
+  <div class="prose">
+    <p><strong>归一化核对.</strong> 上述文献（Haugland 2016 §1 的阶梯函数形式）使用同一个泛函：f : [0,2] → [0,1]，∫f = 1，overlap 为 sup<sub>s</sub> ∫ f(x)(1 − f(x+s)) dx。平凡检查：f ≡ 1/2 时，evaluator 给出 (2/N) · (N/4) = 1/2，与该形式下的平凡上界 1/2 一致，量级也和文献值一致。所以这些数可以直接比较。</p>
+    <p><strong>能说什么、不能说什么.</strong> 本轮的严格上界低于本仓库参照解，也低于 erdosproblems.com #36 列出的公开最好上界 0.380876（TTT-Discover）。但对外宣称"新纪录"之前还需要两件事：
+      (1) 核实参照解 0.38086768 的来源（它是本仓库 best_results 中的解，我们复核了它的值，没有核实它是否已发表）；
+      (2) 由第三方独立复核 problem_formulation.md 中的证明。Swinnerton-Dyer 等价是经典结论，但那份文档的证明是本项目自己写的，没有经过同行评审。最好解的数组和复核脚本都在仓库里，可以直接独立验证。</p>
+  </div>
+  <div class="table-wrap"><table><thead><tr><th>Gap</th><th>定义</th><th>本轮大小</th><th>结论</th></tr></thead><tbody>
+    <tr><td>G1 浮点</td><td>float64 计算值与精确值之差</td><td class="num" data-k="g1"></td><td>精确复核后为 0，报告的是精确值的上取整</td></tr>
+    <tr><td>G2 网格</td><td>μ<sub>N</sub> − μ</td><td class="num">≥ 0，未知</td><td>只影响可达值，加细单调安全</td></tr>
+    <tr><td>G3 最优性</td><td>Φ(v) − μ</td><td class="num" data-k="g3"></td><td>相对 White 2022 下界的上限；真实值未知</td></tr>
+    <tr><td>G4 松弛</td><td>inf<sub>[0,1]</sub> C − inf<sub>{0,1}</sub> C</td><td class="num">0</td><td>定理 5.1(d)，分数值不是松弛</td></tr>
+  </tbody></table></div>
+</section>

@@ -1,0 +1,64 @@
+<section id="setup">
+  <h2>实验配置</h2>
+  <div class="table-wrap"><table id="setup-table"><thead><tr><th>项</th><th>值</th><th>说明</th></tr></thead><tbody></tbody></table></div>
+</section>
+
+<section id="breakthroughs">
+  <h2>关键突破</h2>
+  <div class="prose">
+    <p>下表只列<strong>刷新全局最好</strong>的节点，按评测完成顺序排列。"严格上界"由 <code>certify_erdos_grid.py</code> 用有理数精确算出后向上取整到 12 位，可以直接引用。
+      "峰附近的平移数"统计相关函数中值落在最大值下方 10⁻⁸ 以内的平移个数，用来看峰是不是越来越平（见<a href="#transfer">第 7 章 7.5</a>）。</p>
+  </div>
+  <div class="table-wrap"><table id="bt-table"><thead><tr>
+    <th>#</th><th>时间 (UTC)</th><th>链</th><th>步</th><th>节点</th><th class="num">N</th><th class="num">c5（evaluator）</th><th class="num">严格上界</th>
+    <th class="num">比参照解低</th><th class="num">比上一个最好低</th><th class="num">L¹ 到参照解</th><th class="num">峰附近平移数 (10⁻⁸)</th><th class="num">精确 argmax 个数</th>
+  </tr></thead><tbody></tbody></table></div>
+  <div class="prose"><p data-k="relay_text"></p></div>
+</section>
+
+<section id="viz">
+  <h2>可视化</h2>
+  <div class="charts">
+    <div class="chart" role="figure" aria-labelledby="c1t">
+      <h3 id="c1t">图 1 · 利用链：每个候选比参照解低多少</h3>
+      <div class="canvas-box"><canvas id="chart-exploit" aria-label="利用链候选相对参照解的改进"></canvas></div>
+      <p class="caption">纵轴为 (c5<sub>ref</sub> − c5) × 10⁹，越高越好，0 表示和参照解一样；对数纵轴，没有改进的候选画在底线。阶梯线是全局最好随时间的轨迹。</p>
+    </div>
+    <div class="chart" role="figure" aria-labelledby="c2t">
+      <h3 id="c2t">图 2 · 探索链：从零构造离参照解还差多少</h3>
+      <div class="canvas-box"><canvas id="chart-explore" aria-label="探索链候选与参照解的差距"></canvas></div>
+      <p class="caption">纵轴为 c5 − c5<sub>ref</sub>（×10⁻⁴），越低越好。探索链拿不到 warm start，每个点都是从零构造的结构。</p>
+    </div>
+    <div class="chart" role="figure" aria-labelledby="c3t">
+      <h3 id="c3t">图 3 · 突破阶梯：每次刷新全局最好</h3>
+      <div class="canvas-box"><canvas id="chart-ladder" aria-label="每次突破相对参照解的改进"></canvas></div>
+      <p class="caption">每根柱子是一次全局最好刷新，高度是比参照解低多少（×10⁻⁹），颜色表示来自哪条链。</p>
+    </div>
+    <div class="chart" role="figure" aria-labelledby="c4t">
+      <h3 id="c4t">图 4 · 搜索改了 h 的哪里</h3>
+      <div class="controls" id="diff-controls" aria-label="选择突破"></div>
+      <div class="canvas-box"><canvas id="chart-diff" aria-label="最好解与参照解之差"></canvas></div>
+      <p class="caption">h<sub>new</sub>(x) − h<sub>ref</sub>(x)，在两者的公共加细网格上相减（参照解先 np.repeat 上采样；不改变函数本身）。直接画两条 h 会完全重合，看不出改动。</p>
+    </div>
+    <div class="chart" role="figure" aria-labelledby="c5t">
+      <h3 id="c5t">图 5 · overlap 曲线 A(s) 与它的最大值</h3>
+      <div class="canvas-box"><canvas id="chart-corr" aria-label="overlap 函数与平移"></canvas></div>
+      <p class="caption">横轴为平移 s ∈ (−2, 2)，纵轴为 A<sub>h</sub>(s) = ∫ h(x)(1 − h(x+s)) dx。C(h) 就是这条曲线的最高点。每个像素取区间内的最大值，所以峰不会被抹掉。</p>
+    </div>
+    <div class="chart" role="figure" aria-labelledby="c6t">
+      <h3 id="c6t">图 6 · 峰在变平：接近最大值的平移有多少</h3>
+      <div class="canvas-box"><canvas id="chart-near" aria-label="接近最大值的平移数"></canvas></div>
+      <p class="caption">对每次突破，统计 A(s) 落在最大值下方 10⁻⁶、10⁻⁸、10⁻¹⁰ 以内的格点平移数（对数纵轴）。数量越多，说明越多平移同时"顶在"上界，解越接近一阶最优条件。</p>
+    </div>
+    <div class="chart" role="figure" aria-labelledby="c7t">
+      <h3 id="c7t">图 7 · 最好解 h(x) 的整体形状</h3>
+      <div class="canvas-box"><canvas id="chart-h" aria-label="最好解的阶梯函数"></canvas></div>
+      <p class="caption">[0, 2] 上取值于 [0, 1]、积分为 1 的阶梯函数（按区间均值降采样到约 1200 点）。灰线是参照解，两者在这个尺度上重合，差别见图 4。</p>
+    </div>
+    <div class="chart" role="figure" aria-labelledby="c8t">
+      <h3 id="c8t">图 8 · 每次深度生成的耗时与输出量</h3>
+      <div class="canvas-box"><canvas id="chart-gen" aria-label="生成耗时与输出 token"></canvas></div>
+      <p class="caption">横轴为生成耗时（分钟），纵轴为输出 token（含推理）。上限：thinking_budget 122880，max_tokens 131072。</p>
+    </div>
+  </div>
+</section>

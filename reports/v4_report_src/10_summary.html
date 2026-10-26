@@ -1,0 +1,29 @@
+<header class="prose">
+  <div class="eyebrow">SimpleTES · Erdős minimum overlap · version 4</div>
+  <h1>Erdős v4 搜索报告</h1>
+  <p class="lede">本轮沿用 AlphaEvolve 式 meta search：LLM 进化"生成 h 的代码"，evaluator 打分。改动全部落在 meta-meta 层，包括问题语义、链分工、诊断信号、深度预算和 API 健康监控。
+  这是 v1–v4 中第一次有候选超过 warm start 参照解，并且最好的解经过了<strong>精确有理数复核</strong>。</p>
+  <p class="muted" style="margin:0">运行 <span class="mono" data-k="instance"></span> · 数据快照 <span class="mono" data-k="db_state"></span> · 报告生成于 <span class="mono" data-k="generated"></span></p>
+  <nav class="toc" aria-label="目录">
+    <a href="#result">结论</a><a href="#changes">本轮修改</a><a href="#setup">实验配置</a><a href="#breakthroughs">关键突破</a>
+    <a href="#viz">可视化</a><a href="#transfer">与原问题的关系</a><a href="#nodes">完整节点表</a><a href="#health">API 健康</a><a href="#limits">局限与下一步</a>
+  </nav>
+</header>
+
+<section id="result">
+  <h2>结论</h2>
+  <div class="figures">
+    <div class="figure"><span class="label">最好解的严格上界（向上取整）</span><span class="value" data-k="best_cert"></span><span class="note" data-k="best_cert_note"></span></div>
+    <div class="figure"><span class="label">参照解（warm start）严格上界</span><span class="value" data-k="ref_cert"></span><span class="note">N = 2400，本仓库此前最好</span></div>
+    <div class="figure"><span class="label">改进量（精确有理数之差）</span><span class="value" data-k="improvement"></span><span class="note" data-k="improvement_rel"></span></div>
+    <div class="figure"><span class="label">已评测候选 / 生成调用</span><span class="value" data-k="counts"></span><span class="note" data-k="counts_note"></span></div>
+  </div>
+  <div class="prose">
+    <p data-k="headline_text"></p>
+    <ul>
+      <li><strong>这个数是原问题常数 μ 的严格上界。</strong>它不是某个替代问题上的数。证明链见<a href="#transfer">"与原问题的关系"</a>一章：阶梯函数的 overlap 泛函在网格平移处精确取到上确界，再由 Swinnerton-Dyer 定理，阶梯函数类上的下确界就等于 μ。</li>
+      <li><strong>突破全部来自利用链。</strong>两条利用链通过全局共享 warm start 互相接力，每一步都在前一个全局最好解上继续下降。两条探索链从零构造，最好停在约 2×10⁻⁴ 的差距上，没有找到新的结构。</li>
+      <li><strong>改进量级很小。</strong>相对改进约 10⁻⁸。可以确定它是真实的：精确有理数计算排除了浮点误差，最好解相对参照解的 L¹ 位移也有记录。但它属于精修，不是新结构。</li>
+    </ul>
+  </div>
+</section>

@@ -1,0 +1,36 @@
+<section id="nodes">
+  <h2>完整节点表</h2>
+  <div class="prose"><p>每行是一个被评测的候选（含根节点）。点击表头排序；"反思"列是下一步 prompt 里会看到的诊断摘要（截断）。c5 保留 13 位小数，Δ 列是相对参照解的差 ×10⁹（负数 = 更好）。</p></div>
+  <div class="controls" id="node-filter" aria-label="按链角色筛选">
+    <button type="button" data-f="all" aria-pressed="true">全部</button>
+    <button type="button" data-f="exploit" aria-pressed="false">利用链</button>
+    <button type="button" data-f="explore" aria-pressed="false">探索链</button>
+    <button type="button" data-f="better" aria-pressed="false">只看超过参照解的</button>
+  </div>
+  <div class="table-wrap big-table"><table id="node-table"><thead><tr></tr></thead><tbody></tbody></table></div>
+  <p class="muted" data-k="failures_text" style="margin:0"></p>
+</section>
+
+<section id="health">
+  <h2>API 健康</h2>
+  <div class="prose"><p>每次 LLM 调用都按类别记录在 <code>api_health.jsonl</code>。只有 api_* 类算 API 故障。"首包"是请求发出到第一条流式数据的时间；"最大间隔"是两条流式数据之间的最长停顿。两者都远小于阈值（300 s），说明每次调用全程都在推送推理内容。</p></div>
+  <div class="table-wrap"><table id="health-table"><thead><tr>
+    <th>类型</th><th>类别</th><th class="num">次数</th><th class="num">耗时 中位 / 最大 (min)</th><th class="num">首包 最大 (s)</th><th class="num">最大间隔 (s)</th><th class="num">输出 token 中位 / 最大</th><th class="num">推理字符 中位</th><th class="num">代码字符 中位</th>
+  </tr></thead><tbody></tbody></table></div>
+</section>
+
+<section id="limits">
+  <h2>局限与下一步</h2>
+  <div class="prose">
+    <ul data-k="limits_list"></ul>
+  </div>
+  <p class="muted" style="margin:0">数据来源：qz 平台作业 <span class="mono">erdos-v4-qwen-20261026b</span>，instance <span class="mono" data-k="instance2"></span>；提取脚本 <code>scripts/extract_v4_report_data.py</code>，生成脚本 <code>scripts/build_v4_report.py</code>。</p>
+</section>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script id="report-data" type="application/json">__REPORT_DATA__</script>
+<script>
+__REPORT_APP__
+</script>
+</body>
+</html>
