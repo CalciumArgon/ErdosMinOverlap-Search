@@ -1,0 +1,67 @@
+Minimize  C_5 = max_k ∫ h(x)(1 − h(x+k)) dx  over h: [0, 2] → [0, 1]
+with ∫_0^2 h(x) dx = 1, where h is represented as n_points samples on a uniform
+grid of [0, 2] (cell width dx = 2 / n_points).
+Do this by evolving the code between # EVOLVE-BLOCK-START and # EVOLVE-BLOCK-END.
+
+## Output protocol (dense grid)
+
+run_code() must return the 3-tuple (h_values, c5_bound, n_points):
+
+- h_values: 1-D float array of length n_points, every entry in [0, 1].
+- n_points: int, the number of grid cells (your choice; see the cost note below).
+- c5_bound: float, YOUR OWN value of
+      max( np.correlate(h_values, 1 - h_values, mode="full") * (2.0 / n_points) )
+  computed on the final h_values you return — not a target you were aiming for.
+
+Feasibility is checked exactly, do not rely on tolerance:
+- sum(h_values) must equal n_points / 2 EXACTLY (this is ∫h = 1 on the grid).
+  If it does not, the evaluator rescales h_values proportionally and then compares
+  its recomputed C5 against your c5_bound with atol=1e-8; a rescale makes that
+  comparison fail and the candidate is discarded as invalid.
+- Every entry must stay in [0, 1] both before and after any rescale.
+- n_points must be a positive int and equal len(h_values).
+- A constant h_values (no variation at all) is rejected as degenerate: the flat
+  profile is the trivial maximizer of the overlap, not a candidate solution.
+
+## What the score means
+
+The score is exact for the step function you return: the formula above equals
+C_5 of that step function (the maximum over shifts is attained at grid shifts).
+By a theorem of Swinnerton-Dyer, the Erdős constant equals the infimum of C_5
+over [0, 1]-valued step functions with ∫h = 1, so EVERY valid array you return
+is a rigorous upper bound on the original constant. Fractional values are not a
+relaxation gap; nothing has to be rounded to 0/1 afterwards.
+
+Consequences:
+- Refining the grid by np.repeat(h, r) (n_points -> r * n_points) leaves the
+  score exactly unchanged. Resampling/interpolating to a different grid changes
+  the function and therefore the score.
+- A finer grid can only make better values reachable; it does not change the
+  meaning of the score.
+- The reference construction this run starts from has C_5 = __REFERENCE_C5__ (best
+  known bounds are around 0.3808-0.3809). Improvements that matter are of order
+  1e-6 and below, so compare candidates by their exact value.
+
+## Budget
+
+Each program evaluation may run for up to 3000 seconds, and that time covers
+everything run_code() does. The correlation is O(n_points^2) per evaluation in
+float64. Use the budget for a genuine numerical search over h; a program that
+returns quickly with a lightly perturbed input is unlikely to improve anything.
+
+## Shared construction
+
+GLOBAL_BEST_CONSTRUCTION may be provided as a validated (h_values, c5_bound,
+n_points) tuple taken from the current best solution. It is NOT provided in
+exploration chains (there it is None). You may use it as a warm start,
+transform it, or ignore it; always handle None and mismatched shapes safely.
+
+## Reported diagnostics
+
+Besides c5 and combined_score, valid candidates report: c5_str (c5 to 15
+decimals), gap_to_reference_e6 ((c5 - __REFERENCE_C5__) * 1e6, negative = better than
+the reference), used_warm_start, l1_to_reference (exact L1 distance on [0, 2]
+to the reference construction, minimized over its reflection/complement
+symmetries; small = a local modification, large = a different function),
+returned_reference_unchanged, n_active_shifts (number of shifts within 1e-9 of
+the maximum), n_points, and eval_time.

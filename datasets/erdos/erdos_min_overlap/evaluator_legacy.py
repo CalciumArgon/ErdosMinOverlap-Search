@@ -223,7 +223,9 @@ def diagnostic_metrics(h_scored, correlation, c5_value):
     """Search-dynamics diagnostics reported alongside the score."""
     max_corr = float(np.max(correlation))
     out = {
-        "c5_str": f"{c5_value:.10f}",
+        # v5: 15 decimals (v4: 10). Gains near the SOTA warm starts are 1e-9..1e-12;
+        # float64 error of this score is <= 4e-16 (SOTA/reeval_results.json).
+        "c5_str": f"{c5_value:.15f}",
         "n_points": int(h_scored.shape[0]),
         "n_active_shifts": int(np.sum(correlation >= max_corr - ACTIVE_SHIFT_TOL)),
         "used_warm_start": bool(
@@ -233,7 +235,8 @@ def diagnostic_metrics(h_scored, correlation, c5_value):
     }
     if REFERENCE_C5:
         try:
-            out["gap_to_reference_e6"] = round((c5_value - float(REFERENCE_C5)) * 1e6, 4)
+            # v5: 7 decimals = 1e-13 in c5 (v4: 4 decimals = 1e-10, which rounds gains < 5e-11 to 0)
+            out["gap_to_reference_e6"] = round((c5_value - float(REFERENCE_C5)) * 1e6, 7)
         except ValueError:
             pass
     ref = _load_reference_h()
