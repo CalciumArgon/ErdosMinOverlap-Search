@@ -33,6 +33,9 @@ datasets/ahc/ale_bench/
 checkpoints/
 debug_runs/
 
+SOTA/
+survey/
+
 # LLM keys
 keys
 
